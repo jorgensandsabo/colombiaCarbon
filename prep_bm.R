@@ -328,6 +328,7 @@ PlotBM <- dplyr::left_join(PlotBM,Grass[c("SiteCode","GrassAGB")])
 PlotBM[which(is.na(PlotBM$GrassAGB) & PlotBM$Grass == "X"),]$GrassAGB <- 0
 
 
+PlotBM <- 
 
 ####################
 ## WRITE DATASETS ##
