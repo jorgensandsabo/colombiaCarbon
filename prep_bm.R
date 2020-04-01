@@ -22,7 +22,6 @@ Paramo <- read.csv("raw\\Paramo_clean.csv")
 PTrees <- read.csv("raw\\PTrees_clean.csv")
 Trees <- read.csv("raw\\Trees_clean.csv")
 Plotdata <- read.csv("raw\\Plots_clean.csv")
-Spatialdata <- read.csv("raw\\Spatialdata.csv",stringsAsFactors=FALSE)
 
 ######################
 ### MISSING VALUES ###
@@ -32,7 +31,7 @@ Spatialdata <- read.csv("raw\\Spatialdata.csv",stringsAsFactors=FALSE)
 levels(Deaddata$SF)[which(levels(Deaddata$SF)=="")] <- NA
 levels(Deaddata$Shape)[which(levels(Deaddata$Shape)=="")] <- NA
 
-Deaddata[which(is.na(Deaddata$PlotCode)),]
+Deaddata[which(is.na(Deaddata$SiteCode)),]
 Deaddata[which(is.na(Deaddata$N)),]
 Deaddata[which(is.na(Deaddata$D1)),]
 
@@ -54,19 +53,16 @@ Deaddata[which(is.na(Deaddata$Length)),]$Length <- mean(filter(Deaddata,Length !
 ## Use the rounded plot median (note that median and mean give same values except for two small pieces)
 for(i in 1:nrow(Deaddata)){
   if(is.na(Deaddata$DecayClass[i])){
-    Deaddata$DecayClass[i] <- round(mean(filter(Deaddata,PlotCode==Deaddata$PlotCode[i])$DecayClass,na.rm=TRUE))
+    Deaddata$DecayClass[i] <- round(mean(filter(Deaddata,SiteCode==Deaddata$SiteCode[i])$DecayClass,na.rm=TRUE))
   }
 }
 
 # Grass data
 Grass[which(is.na(Grass$SiteCode)),]
-Grass[which(is.na(Grass$PlotCode)),]
-Grass[which(is.na(Grass$MarkedCode)),]
 Grass[which(is.na(Grass$kgm2)),]
 
 # Paramo data
 Paramo[which(is.na(Paramo$SiteCode)),]
-Paramo[which(is.na(Paramo$PlotCode)),]
 Paramo[which(is.na(Paramo$PlantN)),]
 Paramo[which(is.na(Paramo$Type)),]
 
@@ -75,22 +71,19 @@ Paramo[which(is.na(Paramo$Height)),]
 
 # Pasture tree data
 PTrees[which(is.na(PTrees$SiteCode)),]
-PTrees[which(is.na(PTrees$PlotCode)),]
 PTrees[which(is.na(PTrees$TreeN)),]
 PTrees[which(is.na(PTrees$DBH)),]
 PTrees[which(is.na(PTrees$Dist)),]
 
 # Tree data
 Trees[which(is.na(Trees$SiteCode)),]
-Trees[which(is.na(Trees$PlotCode)),]
-Trees[which(is.na(Trees$Marked)),]
 Trees[which(is.na(Trees$TreeN)),]
 Trees[which(is.na(Trees$DBH)),]
 
 ## TreeN: Add as the last tree number
 for(i in 1:nrow(Trees)){
   if(is.na(Trees$TreeN[i])){
-    Trees$TreeN[i] <- max(filter(Trees,PlotCode==Trees$PlotCode[i])$TreeN,na.rm=TRUE)
+    Trees$TreeN[i] <- max(filter(Trees,SiteCode==Trees$SiteCode[i])$TreeN,na.rm=TRUE)
   }
 }
 
@@ -104,7 +97,7 @@ Trees <- left_join(Trees,Plotdata[c("SiteCode","AreaCode","Cluster")],by="SiteCo
 # Change WSG values (remove outliers for two species - remove all below 1.0 - remove palms/ferns
 Trees[which(Trees$Species=="Quercus Humboldtii" & Trees$WSG==min(Trees[which(Trees$Species=="Quercus Humboldtii"),]$WSG,na.rm=TRUE)),]$WSG <- NA
 Trees[which(Trees$Species=="TAF12sp1" & Trees$WSG==max(Trees[which(Trees$Species=="TAF12sp1"),]$WSG,na.rm=TRUE)),]$WSG <- NA
-Trees[which(Trees$WSG==1.0),]$WSG <- NA
+#Trees[which(Trees$WSG==1.0),]$WSG <- NA
 Trees[which(Trees$Species=="Palm"),]$WSG <- NA
 Trees[which(Trees$Species=="Fern"),]$WSG <- NA
 
@@ -164,7 +157,7 @@ PTrees$Species <- as.character(PTrees$Species)
 PTrees <- left_join(PTrees,Plotdata[c("SiteCode","AreaCode","Cluster")],by="SiteCode")
 
 # Change WSG values
-PTrees[which(PTrees$WSG==1.0),]$WSG <- NA
+#PTrees[which(PTrees$WSG==1.0),]$WSG <- NA
 PTrees[which(PTrees$Species=="Palm"),]$WSG <- NA
 PTrees[which(PTrees$Species=="Fern"),]$WSG <- NA
 
@@ -326,7 +319,7 @@ PlotBM[which(is.na(PlotBM$ParamoAGB) & PlotBM$Plot == "X"),]$ParamoAGB <- 0
 PlotBM$ParamoAGB <- ((PlotBM$ParamoAGB/PlotBM$Size)*10000)/1000
 
 #Dead
-PlotBM <- dplyr::left_join(PlotBM,dplyr::summarise(dplyr::group_by(Deaddata,PlotCode),DeadAGB = sum(Biomass,na.rm=TRUE)))
+PlotBM <- dplyr::left_join(PlotBM,dplyr::summarise(dplyr::group_by(Deaddata,SiteCode),DeadAGB = sum(Biomass,na.rm=TRUE)))
 PlotBM[which(is.na(PlotBM$DeadAGB) & PlotBM$Plot == "X"),]$DeadAGB <- 0
 PlotBM$DeadAGB <- ((PlotBM$DeadAGB/PlotBM$Size)*10000)/1000
 
@@ -339,12 +332,12 @@ PlotBM[which(is.na(PlotBM$GrassAGB) & PlotBM$Grass == "X"),]$GrassAGB <- 0
 ####################
 ## WRITE DATASETS ##
 ####################
-write.csv(Deaddata,"raw\\Dead_BM.csv")
-write.csv(Grass,"raw\\Grass_BM.csv")
-write.csv(Paramo,"raw\\Paramo_BM.csv")
-write.csv(PlotBM,"raw\\Plots_BM.csv")
-write.csv(PTrees,"raw\\PTrees_BM.csv")
-write.csv(Trees,"raw\\Trees_BM.csv")
+write.csv(Deaddata,"raw\\Dead_BM.csv",row.names=F)
+write.csv(Grass,"raw\\Grass_BM.csv",row.names=F)
+write.csv(Paramo,"raw\\Paramo_BM.csv",row.names=F)
+write.csv(PlotBM,"raw\\Plots_BM.csv",row.names=F)
+write.csv(PTrees,"raw\\PTrees_BM.csv",row.names=F)
+write.csv(Trees,"raw\\Trees_BM.csv",row.names=F)
 
 
 
