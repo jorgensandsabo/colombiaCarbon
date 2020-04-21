@@ -70,6 +70,22 @@ for(i in 1:nspecies){
 proptrap <- apply(dbtab, c(1,3), function(i) i/sum(i,na.rm=TRUE))
 propindp <- apply(proptrap,c(2,3),mean)
 
+# Relative change from day 1
+test <- apply(dbtab, c(1,3), function(i) i - i[1])
+
+  # Check:
+  dbtab[58:68,1:4,"Uroxys microcularis"]
+  test[1:4,58:68,"Uroxys microcularis"]
+  
+test2 <- reshape2::melt(test)
+test2 <- filter(test2,value != 0)
+par(mfrow=c(2,2))
+hist(filter(test2,Var1=="R2")$value,breaks=1000)
+hist(filter(test2,Var1=="R3")$value,breaks=1000)
+hist(filter(test2,Var1=="R4")$value,breaks=1000)
+
+nrow(filter(filter(test2,Var1 == "R2"),value>0))
+
 ## Decline across trapdays / baiting day?
 proptab <- reshape2::melt(proptrap)
 plot(proptab$value~proptab$Var1)
@@ -123,9 +139,14 @@ model1.string <- "
       for(j in 1:nsites){
         for(k in 1:ntrapdays){
           
-          count[j,k,i] ~ dpois(lambda[j,k,i]*ORLE[j,k,i])
+          #count[j,k,i] ~ dpois(lambda[j,k,i]*ORLE[j,k,i])
           log(lambda[j,k,i]) <- alpha[i] + beta1[i,hab[j]] + beta2[i,hab[j]] * rebait[k]
 
+          # Zero-inflation:
+          count[j,k,i] ~ dpois(mu[j,k,i])
+          mu[j,k,i] <- lambda[j,k,i] *  z[j,k,i] + 0.000001
+          
+          z[j,k,i] ~ dbern(psi[i,hab[j]])
         }
       }
     }
@@ -152,16 +173,23 @@ model1.string <- "
     }
   }
   
+  # Priors zero-inflation term
+  for(i in 1:nspecies){
+    for(m in 1:2){
+        psi[i,m] ~ dunif(0,1)
+    }
+  }
+  
   # Priors for overdispersion term
  # tauORLE ~ dgamma(1,1)
 
-  for(i in 1:nspecies){
-    for(j in 1:nsites){
-      for(k in 1:ntrapdays){
-          ORLE[j,k,i] ~ dgamma(1,1)
-      }
-    }
-  }
+  #for(i in 1:nspecies){
+   # for(j in 1:nsites){
+    #  for(k in 1:ntrapdays){
+     #     ORLE[j,k,i] ~ dgamma(1,1)
+      #}
+    #}
+  #}
 }"
 
 sink("JAGS\\abunmod.txt")
@@ -171,15 +199,16 @@ sink()
 DBmod_abunmod <- rjags::jags.model(file = "JAGS\\abunmod.txt",
                                    data=list(count = dbtab, hab=hab, rebait=c(0,1,0,1), nspecies= nspecies, nsites = nsites, ntrapdays = ntrapdays),
                                    #inits = list(abun = apply(dbtab,c(1,3),sum)),
-                                   n.chains=3,n.adapt=1000)
-update(object = DBmod_abunmod, n.iter = 1000)
+                                   n.chains=3,n.adapt=10000)
+update(object = DBmod_abunmod, n.iter = 10000)
 DBmod_abunmod <- rjags::coda.samples(model = DBmod_abunmod,
-                                     variable.names = c("lambda","mua","sda","mub1","sdb1","mub2","sdb2","alpha","beta1","beta2"),
-                                     n.iter=1000, thin = 1)
+                                     variable.names = c("lambda","psi","mua","sda","mub1","sdb1","mub2","sdb2","alpha","beta1","beta2"),
+                                     n.iter=10000, thin = 1)
 
 ### Model checks
 MCMCvis::MCMCplot(DBmod_abunmod)
-MCMCvis::MCMCtrace(DBmod_abunmod,wd="C:\\Users\\Jorgen\\Desktop",filename="DBmod_abunmod.pdf")
+MCMCvis::MCMCtrace(DBmod_abunmod,params=c("mua","sda","mub1","sdb1","mub2","sdb2","alpha","beta1","beta2"),wd="C:\\Users\\Jorgen\\Desktop",filename="DBmod_abunmod.pdf")
+MCMCvis::MCMCtrace(DBmod_abunmod,params=c("lambda"),wd="C:\\Users\\Jorgen\\Desktop",filename="DBmod_abunmod_lambda.pdf")
 MCMCvis::MCMCsummary(DBmod_abunmod)
 
 
@@ -242,7 +271,7 @@ model1.string <- "
   model {
 
   # Process model
-  
+
     # State process
     for(i in 1:nspecies){
       for(j in 1:nsites){
