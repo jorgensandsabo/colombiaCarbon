@@ -329,7 +329,7 @@ PlotBM[which(is.na(PlotBM$GrassAGB) & PlotBM$Grass == "X"),]$GrassAGB <- 0
 
 
 PlotBM <- PlotBM[,c("AreaCode","Cluster","SiteCode","HabitatS","HabitatP","Ptrees","Grass","Plot","Size","Dataset",
-                    "TreeAGB","PTha","ParamoAGB","DeadAGB","GrassAGB")]
+                    "FAge","TreeAGB","PTha","ParamoAGB","DeadAGB","GrassAGB")]
 
 ####################
 ## WRITE DATASETS ##

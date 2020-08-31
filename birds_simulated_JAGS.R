@@ -576,8 +576,13 @@ stan.elapsed <- Sys.time() - stan.start.time
 
 summary.samples <- summary(stan.samples)                                
 
-
-
+#### TRY WITH CMDSTAN
+devtools::install_github("jgabry/posterior")
+devtools::install_github("jgabry/cmdstanr")
+library(cmdstanr)
+set_cmdstan_path("C:\\Programs\\cmdstan-2.23.0")
+#install_cmdstan()
+cmdstanr::cmdstan_model(paste(dir.path,"\\testmodel.stan",sep=""))
 
 # Extract benchmarks
 mod.dtime
