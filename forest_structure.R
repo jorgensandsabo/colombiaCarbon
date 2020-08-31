@@ -30,7 +30,7 @@ Deaddata <- read.csv("Data\\raw\\Dead_BM.csv", header = T, stringsAsFactors = F)
 #PTrees <- read.csv("Data\\raw\\PTrees_BM.csv", header = T, stringsAsFactors = F)
 #Paramo <- read.csv("Data\\raw\\Paramo_BM.csv", header = T, stringsAsFactors = F)
 #Grass <- read.csv("Data\\raw\\Grass_BM.csv", header = T, stringsAsFactors = F)
-Spatial <- read.csv("Data\\raw\\Spatialdata2.csv", header = T, stringsAsFactors = F)
+Spatial <- read.csv("Data\\raw\\Spatialdata.csv", header = T, stringsAsFactors = F)
 
 Plotdata$AreaCode <- NULL; Plotdata$Cluster <- NULL
 Plotdata <- dplyr::left_join(Plotdata, Spatial, by = "SiteCode")
