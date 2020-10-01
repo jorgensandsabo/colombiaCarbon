@@ -1,0 +1,182 @@
+### Code to add spatial raster data (e.g. climate / topography) to plot data
+
+# Use machine identifier to automatically set correct working path
+if(file.exists('C:\\Users\\Jorgen\\Documents\\machine_identifier_lu847jp1o.txt')){dir.path <- "C:\\Users\\Jorgen\\OneDrive - Norwegian University of Life Sciences\\PhD"}
+if(file.exists('C:\\Users\\jorgesan\\Documents\\machine_identifier_lksj7842.txt')){dir.path <- "C:\\Users\\jorgesan\\OneDrive - Norwegian University of Life Sciences\\PhD"}
+
+setwd(dir.path)
+
+### Point files
+Spatialdata <- read.csv("Data\\vegetation\\Plots_prep.csv", stringsAsFactors = FALSE)
+
+### SpatialPoints object
+plotcoords <- sp::SpatialPoints(data.frame(cbind(Spatialdata$long,Spatialdata$lat)),proj4string=sp::CRS("+init=epsg:4326"))
+
+#################################
+######## WORLDCLIM DATA #########
+#################################
+# Worldclim data + PET (CGIAR-CSI DATABASE) + AET 
+nrasters <- c("01","02","03","04","05","06","07","08","09","10","11","12")
+precrasters <- list();tminrasters <- list();tmaxrasters <- list();tmeanrasters <- list();petrasters <- list();aetrasters <- list();biovariables <- list();tavgs <- list();pets <- list();precs <- list();aets <- list();sradrasters <- list();srads <- list()
+
+for(i in 1:length(nrasters)){precrasters[[i]] <- raster::crop(raster::raster(paste("GIS\\WorldClim_PrecMonth\\wc2.0_30s_prec_",nrasters[i],".tif",sep="")),raster::extent(c(-81.3,-66.2,-4.53,13.03)))
+  tminrasters[[i]] <- raster::crop(raster::raster(paste("GIS\\WorldClim_TempMinMonth\\wc2.0_30s_tmin_",nrasters[i],".tif",sep="")),raster::extent(c(-81.3,-66.2,-4.53,13.03)))
+  tmaxrasters[[i]] <- raster::crop(raster::raster(paste("GIS\\WorldClim_TempMaxMonth\\wc2.0_30s_tmax_",nrasters[i],".tif",sep="")),raster::extent(c(-81.3,-66.2,-4.53,13.03)))
+  tmeanrasters[[i]] <- raster::crop(raster::raster(paste("GIS\\WorldClim_TempAvgMonth\\wc2.0_30s_tavg_",nrasters[i],".tif",sep="")),raster::extent(c(-81.3,-66.2,-4.53,13.03)))
+  petrasters[[i]] <- raster::crop(raster::raster(paste("GIS\\PET_CGIAR-CSI\\et0_month\\et0_",nrasters[i],".tif",sep="")),raster::extent(c(-81.3,-66.2,-4.53,13.03)))
+  aetrasters[[i]] <- raster::crop(raster::raster(paste("GIS\\SoilWaterBalance\\aet_monthly\\aet_",i,".tif",sep="")),raster::extent(c(-81.3,-66.2,-4.53,13.03)))
+  sradrasters[[i]] <- raster::crop(raster::raster(paste("GIS\\WorldClim_SolarRadiation\\wc2.0_30s_srad_",nrasters[i],".tif",sep="")),raster::extent(c(-81.3,-66.2,-4.53,13.03)))
+}
+
+for(i in 1:length(plotcoords)){
+  print(paste("starting plot ",i," of ",length(plotcoords),sep=""))
+  prec <- vector();tmin <- vector();tmax <- vector();tavg <- vector();pet <- vector();aet <- vector();srad <- vector()
+  for(j in 1:length(nrasters)){
+    prec[j] <- raster::extract(precrasters[[j]],sp::spTransform(plotcoords[i],raster::projection(precrasters[[j]])))
+    tmin[j] <- raster::extract(tminrasters[[j]],sp::spTransform(plotcoords[i],raster::projection(tminrasters[[j]])))
+    tmax[j] <- raster::extract(tmaxrasters[[j]],sp::spTransform(plotcoords[i],raster::projection(tmaxrasters[[j]])))
+    tavg[j] <- raster::extract(tmeanrasters[[j]],sp::spTransform(plotcoords[i],raster::projection(tmeanrasters[[j]])))
+    pet[j] <- raster::extract(petrasters[[j]],sp::spTransform(plotcoords[i],raster::projection(petrasters[[j]])))
+    aet[j] <- raster::extract(aetrasters[[j]],sp::spTransform(plotcoords[i],raster::projection(aetrasters[[j]])))
+    srad[j] <- raster::extract(sradrasters[[j]],sp::spTransform(plotcoords[i],raster::projection(sradrasters[[j]])))
+  }
+  biovariables[[i]] <- dismo::biovars(prec,tmin,tmax)
+  tavgs[[i]] <- tavg;pets[[i]] <- pet;precs[[i]] <- prec;aets[[i]] <- aet;srads[[i]] <- srad
+}
+
+# Add WorldClim data to Spatialdata
+Spatialdata$TotPrec <- NA;Spatialdata$MeanTemp <- NA;Spatialdata$PrecVar <- NA;Spatialdata$TempVar <- NA
+for(i in 1:nrow(Spatialdata)){
+  Spatialdata$TotPrec[i] <- biovariables[[i]][12]
+  Spatialdata$PrecVar[i] <- biovariables[[i]][15]
+  Spatialdata$PrecMax[i] <- biovariables[[i]][13]
+  Spatialdata$PrecMin[i] <- biovariables[[i]][14]
+  Spatialdata$MeanTemp[i] <- biovariables[[i]][1]
+  Spatialdata$TempVar[i] <- biovariables[[i]][4]
+  Spatialdata$TempMax[i] <- biovariables[[i]][5]
+  Spatialdata$TempMin[i] <- biovariables[[i]][6]
+  Spatialdata$MeanArid[i] <- mean(precs[[i]])/mean(pets[[i]])
+  Spatialdata$AridMax[i] <- min(precs[[i]]/pets[[i]])
+  Spatialdata$AridMin[i] <- max(precs[[i]]/pets[[i]])
+  Spatialdata$AridVar[i] <- var(precs[[i]]/pets[[i]])/Spatialdata$MeanArid[i]
+  Spatialdata$SolRad[i] <- mean(srads[[i]])
+}
+
+
+########################
+###### ELEVATIONS ######
+########################
+library(reticulate)
+use_condaenv('gee_interface', conda = "auto", required = TRUE) # point reticulate to the conda environment created in GEE_setup.sh
+ee <- import("ee")          # Import the Earth Engine library
+ee$Initialize()            
+
+# Raster
+ALOS <- ee$Image('JAXA/ALOS/AW3D30/V2_2')
+ALOS_elev <- ALOS$select('AVE_DSM')
+
+# Points
+geompts <- list()
+for(i in 1:nrow(Spatialdata)){geompts[[i]] <- ee$Geometry$Point(c(Spatialdata$long[i],Spatialdata$lat[i]))}
+geompts <- ee$FeatureCollection(c(unlist(geompts)))
+
+# Elevations
+pts_elev <- ALOS$reduceRegions(geompts, ee$Reducer$mean(),scale=30.922080775909325)$getInfo()
+ALOSelev <- vector()
+for(i in 1:length(pts_elev$features)){
+  ALOSelev[i] <- pts_elev$features[[i]]$properties$AVE_DSM
+}
+spatialdata <- cbind.data.frame(Spatialdata,ALOSelev)
+
+# Slope
+ALOS_slope <- ee$Terrain$slope(ALOS)
+pts_slope <- ALOS_slope$reduceRegions(geompts, ee$Reducer$mean(), 30)$getInfo()
+ALOSslope <- vector()
+for(i in 1:length(pts_slope$features)){
+  ALOSslope[i] <- pts_slope$features[[i]]$properties$mean
+}
+spatialdata <- cbind.data.frame(spatialdata,ALOSslope)
+
+# Aspect
+ALOS_aspect <- ee$Terrain$aspect(ALOS)
+pts_aspect <- ALOS_aspect$reduceRegions(geompts, ee$Reducer$mean(), 30)$getInfo()
+ALOSaspect <- vector()
+for(i in 1:length(pts_aspect$features)){
+  ALOSaspect[i] <- pts_aspect$features[[i]]$properties$mean
+}
+spatialdata <- cbind.data.frame(spatialdata,ALOSaspect)
+
+# Continuous heat-insolation load index
+ALOS_chili <- ee$Image("CSP/ERGo/1_0/Global/ALOS_CHILI")
+pts_chili <- ALOS_chili$reduceRegions(geompts, ee$Reducer$mean(), 30)$getInfo()
+ALOSchili <- vector()
+for(i in 1:length(pts_chili$features)){
+  ALOSchili[i] <- pts_chili$features[[i]]$properties$mean
+}
+spatialdata <- cbind.data.frame(spatialdata,ALOSchili)
+
+########################
+###### TPI300  #########
+########################
+tpi300 <- raster::raster("GIS\\ALOS_DEM30\\tpi300.tif")
+
+tpi300s <- vector()
+for(i in 1:length(plotcoords)){
+  tpi300s[i] <- raster::extract(tpi300,sp::spTransform(plotcoords[i],raster::projection(tpi300)))
+}
+spatialdata <- cbind(spatialdata,tpi300s)
+
+tpi300_stdi <- (((tpi300s-mean(tpi300s))/sd(tpi300s))*100)+0.5
+tpi300_sp <- vector()
+for(i in 1:length(tpi300_stdi)){
+   if(tpi300_stdi[i] > 100){tpi300_sp[i] <- "ridge"}
+   else if(tpi300_stdi[i] <= 100 & tpi300_stdi[i] > 50){tpi300_sp[i] <- "upper slope"}
+   else if(tpi300_stdi[i] <= 50 & tpi300_stdi[i] > -50 & spatialdata$ALOSslope[i] > 10){tpi300_sp[i] <- "middle slope"}
+   else if(tpi300_stdi[i] <= 50 & tpi300_stdi[i] > -50 & spatialdata$ALOSslope[i] <= 10){tpi300_sp[i] <- "flats slope"}
+   else if(tpi300_stdi[i] < 50 & tpi300_stdi[i] >= -100){tpi300_sp[i] <- "lower slope"}
+   else if(tpi300_stdi[i] < -100){tpi300_sp[i] <- "valley"}
+}
+spatialdata <- cbind(spatialdata,tpi300_sp)
+
+################
+#### SAVE ######
+################
+write.csv(spatialdata,"Data\\spatialdata\\Spatialdata.csv",row.names=F)
+
+
+
+
+
+
+
+
+
+
+
+
+
+#### TESTS
+ALOShli <- raster::raster("ALOShli.tif")
+
+ALOShlis <- vector()
+for(i in 1:length(plotcoords)){
+  ALOShlis[i] <- raster::extract(ALOShli,sp::spTransform(plotcoords[i],raster::projection(ALOShli)))
+}
+spatialdata <- cbind(spatialdata,ALOShlis)
+
+ALOSsra <- raster::raster("ALOSsra.tif")
+ALOSsras <- vector()
+for(i in 1:length(plotcoords)){
+  ALOSsras[i] <- raster::extract(ALOSsra,sp::spTransform(plotcoords[i],raster::projection(ALOSsra)))
+}
+spatialdata <- cbind(spatialdata,ALOSsras)
+
+ALOS_mtpi <- ee$Image("CSP/ERGo/1_0/Global/ALOS_mTPI")
+pts_mtpi <- ALOS_mtpi$reduceRegions(geompts, ee$Reducer$mean(), 30)$getInfo()
+ALOSmtpi <- vector()
+for(i in 1:length(pts_mtpi$features)){
+  ALOSmtpi[i] <- pts_mtpi$features[[i]]$properties$mean
+}
+spatialdata <- cbind.data.frame(spatialdata,ALOSmtpi)
+
+
