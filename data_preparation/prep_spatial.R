@@ -124,7 +124,6 @@ tpi300s <- vector()
 for(i in 1:length(plotcoords)){
   tpi300s[i] <- raster::extract(tpi300,sp::spTransform(plotcoords[i],raster::projection(tpi300)))
 }
-spatialdata <- cbind(spatialdata,tpi300s)
 
 tpi300_stdi <- (((tpi300s-mean(tpi300s))/sd(tpi300s))*100)+0.5
 tpi300_sp <- vector()
@@ -136,12 +135,21 @@ for(i in 1:length(tpi300_stdi)){
    else if(tpi300_stdi[i] < 50 & tpi300_stdi[i] >= -100){tpi300_sp[i] <- "lower slope"}
    else if(tpi300_stdi[i] < -100){tpi300_sp[i] <- "valley"}
 }
-spatialdata <- cbind(spatialdata,tpi300_sp)
+
+tpi300c <- tpi300_sp
+for(i in 1:length(tpi300_sp)){
+  if(tpi300c[i] %in% c("middle slope", "upper slope", "lower slope")){tpi300c[i] <- "slope"}  
+  if(tpi300c[i] == "flats slope"){tpi300c[i] <- "flat"} 
+}
+
+spatialdata <- cbind(spatialdata,tpi300s)
+#spatialdata <- cbind(spatialdata,tpi300_sp)
+spatialdata <- cbind(spatialdata, tpi300c)
 
 ################
 #### SAVE ######
 ################
-write.csv(spatialdata,"Data\\spatialdata\\Spatialdata.csv",row.names=F)
+write.csv(spatialdata,"Data\\vegetation\\Spatialdata.csv",row.names=F)
 
 
 
