@@ -22,9 +22,11 @@ cat("model {
     
     #Priors
     sigma1 ~ dgamma(1,5)
-    tau1 <- pow(sigma1,-2)
+    var1 <- pow(sigma1,2)
+    tau1 <- 1/var1
     sigma0 ~ dgamma(1,5)
-    tau0 <- pow(sigma0,-2)
+    var0 <- pow(sigma0,2)
+    tau0 <- 1/var0
     alpha ~ dnorm(0.5,2)T(0,)
     b_vol ~ dnorm(0,2)
     
@@ -33,7 +35,8 @@ cat("model {
     }
     muspec ~ dnorm(0,2)
     sdspec ~ dgamma(1,5)
-    tauspec <- pow(sdspec,-2)
+    varspec <- pow(sdspec,2)
+    tauspec <- 1/varspec
     
     for(i in 1:narea){
       b_area[i] ~ dnorm(0,tauarea)
@@ -46,28 +49,24 @@ cat("model {
     }
     
     sdarea ~ dgamma(1,5)
-    tauarea <- pow(sdarea,-2)
+    vararea <- pow(sdarea,2)
+    tauarea <- 1/vararea
     sdcluster ~ dgamma(1,5)
-    taucluster <- pow(sdcluster,-2)
+    varcluster <- pow(sdcluster,2)
+    taucluster <- 1/varcluster
     sdsite ~ dgamma(1,5)
-    tausite <- pow(sdsite,-2)
+    varsite <- pow(sdsite,2)
+    tausite <- 1/varsite
     
     # Derived parameters
     fit <- sum(res[])
     fit.pred <- sum(res.pred[])
-    
-    vararea <- pow(sdarea,2)
-    varcluster <- pow(sdcluster,2)
-    varsite <- pow(sdsite,2)
-    varspec <- pow(sdspec,2)
-    var1 <- pow(sigma1,2)
-    var0 <- pow(sigma0,2)
     }
 ",fill=TRUE)
 sink()
 
-## Individual tree model 2
-sink("JAGS//WSG_trees2.txt")
+## Individual tree model with variance structure on site intersite variation
+sink("JAGS//WSG_trees_varstruct.txt")
 cat("model {
     
     #Likelihood model
@@ -81,12 +80,14 @@ cat("model {
 
       loglik[n] <- logdensity.norm(WSG[n], mu[n], tau1 * speciesid[n] + tau0 * abs(1-speciesid[n]))
     }
-    
+
     #Priors
     sigma1 ~ dgamma(1,5)
-    tau1 <- pow(sigma1,-2)
+    var1 <- sigma1^2
+    tau1 <- 1/var1
     sigma0 ~ dgamma(1,5)
-    tau0 <- pow(sigma0,-2)
+    var0 <- sigma0^2
+    tau0 <- 1/var0
     alpha ~ dnorm(0.5,2)T(0,)
     b_vol ~ dnorm(0,2)
     
@@ -95,7 +96,8 @@ cat("model {
     }
     muspec ~ dnorm(0,2)
     sdspec ~ dgamma(1,5)
-    tauspec <- pow(sdspec,-2)
+    varspec <- sdspec^2
+    tauspec <- 1/varspec
     
     for(i in 1:narea){
       b_area[i] ~ dnorm(0, tauarea)
@@ -121,9 +123,6 @@ cat("model {
     # Derived parameters
     fit <- sum(res[])
     fit.pred <- sum(res.pred[])
-    
-    var1 <- pow(sigma1,2)
-    var0 <- pow(sigma0,2)
     }
 ",fill=TRUE)
 sink()

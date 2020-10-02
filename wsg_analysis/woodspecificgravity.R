@@ -32,7 +32,7 @@ treesF <- dplyr::filter(treesF,AreaCode != "CC")          # Dry forest site
 treesF <- dplyr::filter(treesF,AreaCode != "TU")          # High elevation polylepis forest
 
 # Calculate volume
-treesF <- dplyr::mutate(treesF, vol = exp(2.789 - 1.414 * log(DBH) + 1.178  * (log(DBH)^2) - 0.118 * (log(DBH)^3)))
+treesF <- dplyr::mutate(treesF, vol = exp(2.789 - 1.414 * log(DBH_used) + 1.178  * (log(DBH_used)^2) - 0.118 * (log(DBH_used)^3)))
 treesF$vol <- treesF$vol / 1000     # From dm^3 to m^3 for readable effect sizes. Back-transform before AGB calculation
 
 # Remove species with less than two individuals or no cores
@@ -59,8 +59,6 @@ treesF$AreaNum <- as.numeric(as.factor(treesF$AreaCode))
 #Plotdata$slopes <- scale(Plotdata$ALOSslope)
 #Plotdata$aspects <- scale(cos(Plotdata$ALOSaspect))
 
-test <- treesF %>% group_by(SiteCode) %>% summarise(sum(!is.na(WSG)))
-
 ###########################################
 ## Predictive model for individual trees ## 
 ###########################################
@@ -86,17 +84,19 @@ n.iter <- n.burnin + 2000
 n.thin <- 1
 n.cores <- n.chains
 
-WSGtreemod <- jagsUI::jags(model.file = "JAGS//WSG_trees2.txt", data = moddat, inits = modinits,
-                               parameters.to.save = c("d","alpha","var1","var0","b_vol","muspec","varspec","vararea","varsite","varcluster","fit","fit.pred","loglik","WSG.pred"),
-                               n.chains = n.chains, n.iter = n.iter, n.burnin = n.burnin, n.thin = n.thin,
-                               parallel = T, n.cores = n.cores, codaOnly = c("WSG.pred","loglik"))
+WSGtreemod <- jagsUI::jags(model.file = "JAGS//WSG_trees_varstruct.txt", data = moddat, inits = modinits,
+                           parameters.to.save = c("alpha","var1","var0","b_vol","dsite","muspec","varspec","vararea","varsite","varcluster","fit","fit.pred","loglik","WSG.pred"),
+                           n.chains = n.chains, n.iter = n.iter, n.burnin = n.burnin, n.thin = n.thin,
+                           parallel = T, n.cores = n.cores, codaOnly = c("WSG.pred","loglik"))
+
 save(WSGtreemod, file = "JAGS\\WSGtreemod_out.Rdata")
 
-## loo estimate
+## Model performance criteria
 WSGtreeloo <- loo::loo(WSGtreemod$sims.list$loglik, r_eff = loo::relative_eff(exp(WSGtreemod$sims.list$loglik), unlist(lapply(c(1:n.chains), function(x) rep(x, nrow(WSGtreemod$sims.list$loglik) / n.chains)))))
+WSGtreeDIC <- data.frame(cbind(WSGtreemod$DIC, WSGtreemod$pD)) ; colnames(WSGtreeDIC) <- c("DIC","pD")
 
 ## Model estimate table
-treemod_esttab <- WSGtreemod$summary[c("alpha","b_vol","varspec","vararea","varcluster","varsite"),c(1:3,7)]
+treemod_esttab <- WSGtreemod$summary[c("alpha","b_vol","varspec","vararea","varcluster","varsite","dsite"),c(1:3,7)]
 rownames(treemod_esttab) <- c("mean","volume","species","area","cluster","site")
 treemod_esttab <- round(treemod_esttab,4)
 #write.csv(treemod_esttab,"Output\\WSG\\treemod_esttab.csv")
@@ -116,11 +116,6 @@ bayesplot::ppc_scatter(y, yrep[1:10, ])
 bayesplot::ppc_scatter_avg(y, yrep)
 bayesplot::ppc_scatter_avg_grouped(y, yrep, group = treesF$speciesid[which(!is.na(treesF$WSG))])
 
-## Predict values across dataset
-treesF$WSGpred <- WSGtreemod$mean$WSG.pred
-treesF$WSGused <- WSGtreemod$mean$WSG.pred
-treesF$WSGused[which(!is.na(treesF$WSG))] <- treesF$WSG[which(!is.na(treesF$WSG))]
-
 ## Moran's I
 tree.dists <- as.matrix(dist(cbind(treesF$long, treesF$lat)))
 tree.dists <- tree.dists + 1
@@ -132,25 +127,30 @@ ape::Moran.I(WSGtreemod$mean$res, plot.dists.inv)
 #############################
 ## Plot-average WSG models ##  ADD CATEGORICAL VARIABLES
 #############################
+## Predict values across dataset
+treesF$WSGpred <- WSGtreemod$mean$WSG.pred
+treesF$WSGused <- WSGtreemod$mean$WSG.pred
+treesF$WSGused[which(!is.na(treesF$WSG))] <- treesF$WSG[which(!is.na(treesF$WSG))]
+
 ## Weigh WSG by volume/DBH 
-treesF <- left_join(treesF, treesF %>% group_by(SiteCode) %>% summarise(totDBH = sum(DBH), totVOL = sum(vol)))
+treesF <- left_join(treesF, treesF %>% group_by(SiteCode) %>% summarise(totDBH = sum(DBH_used), totVOL = sum(vol)))
 treesF$VOLw <- treesF$vol / treesF$totVOL
-treesF$DBHw <- treesF$DBH / treesF$totDBH
+treesF$DBHw <- treesF$DBH_used / treesF$totDBH
 treesF$WSGv <- treesF$WSGused * treesF$VOLw
 treesF$WSGd <- treesF$WSGused * treesF$DBHw
 
   ## This part adds volume-weighted WSG for cored trees only
   treesFm <- filter(treesF, !is.na(WSG))
-  treesFm <- left_join(treesFm, treesFm %>% group_by(SiteCode) %>% summarise(totDBHm = sum(DBH), totVOLm = sum(vol)))
+  treesFm <- left_join(treesFm, treesFm %>% group_by(SiteCode) %>% summarise(totDBHm = sum(DBH_used), totVOLm = sum(vol)))
   treesFm$VOLw <- treesFm$vol / treesFm$totVOLm
-  treesFm$DBHw <- treesFm$DBH / treesFm$totDBHm
+  treesFm$DBHw <- treesFm$DBH_used / treesFm$totDBHm
   treesFm$WSGvm <- treesFm$WSG * treesFm$VOLw
   treesFm$WSGdm <- treesFm$WSG * treesFm$DBHw
   treesF <- left_join(treesF, treesFm[,c("SiteCode","TreeN","StemN","totDBHm","totVOLm","WSGvm","WSGdm")])
 
 ## Calculate plot averages
 plotsF <- treesF %>% group_by(SiteCode) %>% summarise(WSGn = mean(WSG,na.rm=T), WSGp = mean(WSGused), WSGv = sum(WSGv), WSGd = sum(WSGd), WSGvm = sum(WSGvm,na.rm=T), WSGdm = sum(WSGdm,na.rm=T), ntree = n(), ncore = sum(WSG/WSG,na.rm=T), vol = sum(vol))
-plotsF <- as.data.frame(left_join(plotsF,Plotdata))
+plotsF <- as.data.frame(left_join(plotsF,Spatial))
 
 ## Function to run models
 WSGmod_multicov <- function(covariates){
