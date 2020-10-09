@@ -340,8 +340,14 @@ metadata[which(metadata$site == "Mesenia"),]$site <- "ChA"
 metadata[which(metadata$site == "LasTangaras"),]$site <- "ChC" 
 metadata[which(metadata$site == "Montezuma"),]$site <- "ChCore"
 
+metadata <- mutate(metadata, region = case_when(
+  region == "oriental" ~ paste(region,mountain_slope,sep=" "),
+  TRUE ~ region
+))
+metadata[which(metadata$region == "oriental na"),]$region <- "magdalenavalley"
+
 ### Select columns and rename
-plotsdf <- metadata[,c("point_id","site","cluster","lat","long")]
+plotsdf <- metadata[,c("point_id","site","cluster","lat","long","region")]
 names(plotsdf)[c(1,2,3)] <- c("SiteCode","AreaCode","Cluster")
 
 ### Add missing cluster numbers

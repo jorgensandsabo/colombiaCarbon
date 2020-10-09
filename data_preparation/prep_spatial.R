@@ -146,15 +146,23 @@ spatialdata <- cbind(spatialdata,tpi300s)
 #spatialdata <- cbind(spatialdata,tpi300_sp)
 spatialdata <- cbind(spatialdata, tpi300c)
 
+###########################
+###### SOIL DATA  ######### Currently only dominant soil type ("soildata" not in use)
+###########################
+soildata <- read.csv("GIS\\SoilDatabase1_21\\HWSD_DATA.csv", stringsAsFactors = F)
+
+soiltype <- read.csv("GIS\\SoilDatabase1_21\\HWSD_SMU.csv", stringsAsFactors = F)
+soilraster <- raster::raster("GIS\\SoilDatabase1_21\\hwsd.tif")
+MU_GLOBAL <- raster::extract(soilraster, sp::spTransform(plotcoords, raster::projection(soilraster)))
+spatialdata <- cbind(spatialdata, MU_GLOBAL)
+spatialdata <- dplyr::left_join(spatialdata,soiltype[,c("MU_GLOBAL","SU_SYMBOL")])
+spatialdata$MU_GLOBAL <- NULL
+names(spatialdata)[which(names(spatialdata) == "SU_SYMBOL")] <- "SoilType"
+
 ################
 #### SAVE ######
 ################
 write.csv(spatialdata,"Data\\vegetation\\Spatialdata.csv",row.names=F)
-
-
-
-
-
 
 
 
@@ -186,5 +194,62 @@ for(i in 1:length(pts_mtpi$features)){
   ALOSmtpi[i] <- pts_mtpi$features[[i]]$properties$mean
 }
 spatialdata <- cbind.data.frame(spatialdata,ALOSmtpi)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+## REMOVE
+
+########################
+###### ELEVATIONS ######
+########################
+library(reticulate)
+use_condaenv('gee_interface', conda = "auto", required = TRUE) # point reticulate to the conda environment created in GEE_setup.sh
+ee <- import("ee")          # Import the Earth Engine library
+ee$Initialize()            
+
+# Raster
+ALOS <- ee$Image('JAXA/ALOS/AW3D30/V2_2')
+ALOS_elev <- ALOS$select('AVE_DSM')
+
+# Points
+geompts <- list()
+for(i in 1:nrow(Spatialdata)){geompts[[i]] <- ee$Geometry$Point(c(Spatialdata$long[i],Spatialdata$lat[i]))}
+geompts <- ee$FeatureCollection(c(unlist(geompts)))
+
+# Elevations
+pts_elev <- ALOS$reduceRegions(geompts, ee$Reducer$mean(),scale=30.922080775909325)$getInfo()
+ALOSelev <- vector()
+for(i in 1:length(pts_elev$features)){
+  ALOSelev[i] <- pts_elev$features[[i]]$properties$AVE_DSM
+}
+spatialdata <- cbind.data.frame(Spatialdata,ALOSelev)
+
+
+
+
+
+
+
+######### 
+dataset <- ee$ImageCollection('COPERNICUS/S2_SR')$filterDate('2015-01-01', '2020-01-30')$filter(ee$Filter$lt('CLOUDY_PIXEL_PERCENTAGE',5))
+
+pts_elev <- dataset$reduceRegions(geompts, ee$Reducer$mean(),scale=30.922080775909325)$getInfo()
+ALOSelev <- vector()
+for(i in 1:length(pts_elev$features)){
+  ALOSelev[i] <- pts_elev$features[[i]]$properties$AVE_DSM
+}
+spatialdata <- cbind.data.frame(Spatialdata,ALOSelev)
 
 
