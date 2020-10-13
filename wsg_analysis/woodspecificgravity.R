@@ -35,6 +35,9 @@ treesF <- dplyr::filter(treesF,AreaCode != "TU")          # High elevation polyl
 treesF <- dplyr::mutate(treesF, vol = exp(2.789 - 1.414 * log(DBH_used) + 1.178  * (log(DBH_used)^2) - 0.118 * (log(DBH_used)^3)))
 treesF$vol <- treesF$vol / 1000     # From dm^3 to m^3 for readable effect sizes. Back-transform before AGB calculation
 
+# Remove plots with no cores
+treesF <- dplyr::filter(treesF, !SiteCode %in% c("C15_P2","PSF11","PSF12","TAF1","TAF2","TSF5"))
+
 # Remove species with less than two individuals or no cores
 coredSp <- treesF %>% mutate(cored = WSG/WSG)
 coredSp <- coredSp %>% group_by(Species) %>% summarise(total = n(), cored = sum(cored,na.rm=T))
@@ -51,6 +54,10 @@ treesF$SiteNum <- as.numeric(as.factor(treesF$SiteCode))
 treesF$ClusNum <- as.numeric(as.factor(treesF$Cluster))
 treesF$AreaNum <- as.numeric(as.factor(treesF$AreaCode))
 treesF$RegionNum <- as.numeric(as.factor(treesF$region))
+
+# Plot distances
+test <- sp::spDists(cbind(plotsF$long,plotsF$lat),longlat = TRUE)
+test[lower.tri(test)] <- NA ; diag(test) <- NA
 
 ###########################################
 ## Predictive model for individual trees ## 
@@ -81,10 +88,10 @@ n.thin <- 10
 n.cores <- n.chains
 
 start.time <- Sys.time()
-WSGtreemod <- jagsUI::autojags(model.file = "JAGS//WSG_trees_varstruct.txt", data = moddat, inits = modinits,
-                           parameters.to.save = c("alpha","var1","var0","b_vol","dsite","muspec","varspec","vararea","varsite","varcluster","RMSE","RMSE.pred","loglik","WSG.pred","res","b_area","b_cluster","b_site"),
-                           n.chains = n.chains, #n.iter = n.iter, n.burnin = n.burnin, n.thin = n.thin,
-                           parallel = T, n.cores = n.cores, codaOnly = c("WSG.pred","loglik","res"))
+WSGtreemod <- jagsUI::jags(model.file = "JAGS//WSG_trees_varstruct.txt", data = moddat, inits = modinits,
+                           parameters.to.save = c("alpha","var1","var0","b_vol","dsite","muspec","varspec","vararea","varsite","varcluster","RMSE","RMSE.pred","loglik","WSG.pred","res","b_area","b_cluster","b_site","mu"),
+                           n.chains = n.chains, n.iter = n.iter, n.burnin = n.burnin, n.thin = n.thin,
+                           parallel = T, n.cores = n.cores, codaOnly = c("WSG.pred","loglik","res","mu"))
 time.used <- Sys.time()-start.time
 
 save(WSGtreemod, file = "JAGS\\WSGtreemod_out.Rdata")
@@ -104,6 +111,8 @@ bayesplot::ppc_stat(y, yrep, stat = "min")
 bayesplot::ppc_stat(y, yrep, stat = "mean")
 bayesplot::ppc_stat(y, yrep, stat = "median")
 bayesplot::ppc_stat_grouped(y, yrep, group = treesF$speciesid[which(!is.na(treesF$WSG))], stat = "mean")
+
+bayesplot::ppc_error_scatter(y, yrep)
 
 bayesplot::ppc_error_scatter_avg(y, yrep)
 bayesplot::ppc_scatter_avg(y, yrep)
@@ -143,6 +152,19 @@ treemod_esttab <- WSGtreemod$summary[c("alpha","b_vol","varspec","vararea","varc
 rownames(treemod_esttab) <- c("mean","volume","species","area","cluster","site","dsite")
 treemod_esttab <- round(treemod_esttab,4)
 #write.csv(treemod_esttab,"Output\\WSG\\treemod_esttab.csv")
+
+## Bayesian R2
+varres <- apply(WSGtreemod$sims.list$res[,which(!is.na(treesF$WSG))], 1, var)
+varmu <- apply(WSGtreemod$sims.list$mu[,which(!is.na(treesF$WSG))], 1, var)
+R2 <- varmu / (varmu + varres)
+mean(R2)
+R2[order(R2)][length(R2)*0.025]
+R2[order(R2)][length(R2)*0.975]
+
+## Residual variation
+mean(varres)
+varres[order(varres)][length(varres)*0.025]
+varres[order(varres)][length(varres)*0.975]
 
 ## Moran's I
 tree.dists <- as.matrix(dist(cbind(treesF$long, treesF$lat)))
@@ -186,6 +208,8 @@ cols <- RColorBrewer::brewer.pal(9, "Blues")[ceiling(plotsF$ncore/7) + 1]
 plot((plotsF$WSGv-plotsF$WSGvm) ~ plotsF$ncore, ylab = "Estimated - measured plot average WSGv", xlab = "Number of cores") ; abline(h = 0)
 plot(plotsF$WSGvm~plotsF$WSGv, col = cols, pch=16) ; abline(0,1)
 
+
+
 #############################
 ## Plot-average WSG models ##
 #############################
@@ -205,10 +229,19 @@ plotsF$regionNum <- as.numeric(as.factor(plotsF$region))
 ## Function to run models
 WSGmod_multicov <- function(covariatesN = NULL, covariatesC = NULL){
   moddat <- list("Nobs" = length(plotsF$WSGv),
-                 "WSG" = plotsF$WSGv,
-                 "AreaNum" = plotsF$ClusNum,
-                 "narea" = length(unique(plotsF$Cluster)))
+                 "WSG" = plotsF$WSGv)
+                 #"AreaNum" = plotsF$ClusNum,
+                 #"narea" = length(unique(plotsF$Cluster)))
   
+  moddat <- append(moddat, list("SiteNum" = plotsF$SiteNum,
+                                "ClusNum" = plotsF$ClusNum,
+                                "ClusNumS" = data.frame(plotsF %>% group_by(SiteNum) %>% summarise(first(ClusNum)))[,2],
+                                "AreaNum" = plotsF$AreaNum,
+                                "AreaNumC" = data.frame(plotsF %>% group_by(ClusNum) %>% summarise(first(AreaNum)))[,2],
+                                "nsites" = length(unique(plotsF$SiteCode)),
+                                "ncluster" = length(unique(plotsF$Cluster)),
+                                "narea" = length(unique(plotsF$AreaCode))))
+                              
   if(!is.null(covariatesC)){
     modelfile <- "JAGS//WSG_plots_covC.txt"
   }
@@ -218,9 +251,10 @@ WSGmod_multicov <- function(covariatesN = NULL, covariatesC = NULL){
       modelfile <- "JAGS//WSG_plots_covNC.txt"
     }
   }
-  
- modelfile <-  "JAGS//WSG_plots_noarea.txt"
-
+ 
+ #modelfile <-  "JAGS//WSG_plots_noarea.txt"
+  modelfile <- "JAGS//WSG_plots_fullspatial.txt"
+ 
   if(!is.null(covariatesN)){
     moddat <- append(moddat, list("cov" = covariatesN,
                                   "ncov" = ncol(covariatesN)))}
@@ -234,7 +268,7 @@ WSGmod_multicov <- function(covariatesN = NULL, covariatesC = NULL){
 
   mod <- jagsUI::jags(model.file = modelfile, data = moddat, inits = NULL,
                       parameters.to.save = c("alpha","var0","vararea","varcovC","b_cov","b_covC","b_area","fit","fit.pred",
-                                             "WSG.pred","loglik","res"),
+                                             "WSG.pred","loglik","res","mu"),
                       n.chains = n.chains, n.iter = n.iter, n.burnin = n.burnin, n.thin = n.thin,
                       parallel = T, n.cores = n.cores, codaOnly = c("WSG.pred","loglik","res"))
   return(mod)
@@ -243,7 +277,7 @@ WSGmod_multicov <- function(covariatesN = NULL, covariatesC = NULL){
 ## Run model
 n.chains <- 4
 n.burnin <- 10000
-n.iter <- n.burnin + 2000
+n.iter <- n.burnin + 1000
 n.thin <- 1
 n.cores <- n.chains
 
@@ -267,12 +301,12 @@ plotmods$tpi <- WSGmod_multicov(covariatesC = cbind(plotsF$tpi300c))
 
 plotmods$soil <- WSGmod_multicov(covariatesC = cbind(plotsF$SoilType))
 
-plotmods$clim <- WSGmod_multicov(covariatesN = cbind(plotsF$elevs, plotsF$arids, plotsF$aridvars,plotsF$tempvars))
+plotmods$clim4 <- WSGmod_multicov(covariatesN = cbind(plotsF$elevs, plotsF$arids, plotsF$aridvars,plotsF$tempvars))
 plotmods$local <- WSGmod_multicov(covariatesN = cbind(plotsF$elevs, plotsF$arids, plotsF$aridvars,plotsF$tempvars,plotsF$slopes,plotsF$aspects), covariatesC = cbind(plotsF$tpi300c, plotsF$SoilType))
 
 plotmods$full <- WSGmod_multicov(covariatesN = cbind(plotsF$slopes,plotsF$aspects), covariatesC = cbind(plotsF$tpi300c))
 
-test <- cbind(plotsF$ALOSelev,plotsF$MeanArid,plotsF$AridVar,plotsF$TempVar,plotsF$ALOSslope,cos(plotsF$ALOSaspect))
+test <- cbind(plotsF$ALOSelev,plotsF$MeanArid,plotsF$AridVar,plotsF$TempVar) #,plotsF$ALOSslope,cos(plotsF$ALOSaspect))
 test2 <- prcomp(test, scale = T, center = T)
 plotmods$PCA <- WSGmod_multicov(covariatesN = cbind(test2$x[,1], test2$x[,2], test2$x[,3], test2$x[,4]))
 
@@ -307,27 +341,62 @@ row.names(DIC_comp) <- names(plotmods) ; names(DIC_comp) <- c("DIC","pD") ; DIC_
 ## Retrieve Bayesian R2 estimates
 R2_comp <- as.data.frame(matrix(NA, nrow = length(plotmods), ncol = 4))
 for(i in 1:length(plotmods)){
-  var.fit <- apply(plotmods[[i]]$sims.list$WSG.pred,1,var)
+  var.mu <- apply(plotmods[[i]]$sims.list$mu,1,var)
   #var.res <- (plotmods[[i]]$sims.list$sigma)^2
-  var.res <- plotmods[[i]]$sims.list$var0
-  R2 <- var.fit / (var.fit + var.res)
+  var.res <- apply(plotmods[[i]]$sims.list$res,1,var)
+  R2 <- var.mu / (var.mu + var.res)
   R2_comp[i,1] <- mean(R2)
   R2_comp[i,2] <- sd(R2)
-  R2_comp[i,3] <- sort(R2)[(length(R2)/100)*2.5]
-  R2_comp[i,4] <- sort(R2)[(length(R2)/100)*97.5]
+  R2_comp[i,3] <- R2[order(R2)][length(R2)*0.025]
+  R2_comp[i,4] <- R2[order(R2)][length(R2)*0.975]
 }
 row.names(R2_comp) <- names(plotmods) ; names(R2_comp) <- c("R2","R2sd","R2q2.5","R2q97.5") ; R2_comp$model <- row.names(R2_comp)
+
+apply(plotmods$clim$sims.list$WSG.pred,1,function(x) cor(x,plotsF$WSGv))
 
 ## Full comparison table
 comptab <- left_join(left_join(DIC_comp, loos_comp), R2_comp)
 
-# write.csv(plotmods[[6]]$summary,"C:\\Users\\jorgesan\\Desktop\\clim.csv")
+## Summary table
+plotmod_out <- round(plotmods$clim$summary[1:5,c(1,3,6)],3)
+rownames(plotmod_out) <- c("Intercept","Elevation","Aridity","Aridity variability","Temperature variability")
+plotmod_out2 <- round(plotmods$clim2$summary[c(1,3:7),c(1,3,6)],3)
+rownames(plotmod_out2) <- c("Intercept","AreaVar","Elevation","Aridity","Aridity variability","Temperature variability")
+plotmod_out3 <- round(plotmods$clim4$summary[c(1,3:7),c(1,3,6)],3)
+rownames(plotmod_out2) <- c("Intercept","AreaVar","Elevation","Aridity","Aridity variability","Temperature variability")
+
+RMSE <- sqrt(sum((plotmods$clim$mean$res)^2)/length(plotmods$clim$mean$res))
+R2_bayes <- var(plotmods$clim$mean$mu) / (var(plotmods$clim$mean$mu) + var(plotmods$clim$mean$res))
+R2_cor <- (cor(plotmods$clim$mean$WSG.pred, plotsF$WSGv))^2
+
+#write.csv(plotmod_out,"Output\\WSG\\plotmod_out.csv")
 
 ## 
-checkmod <- plotmods$soil
+checkmod <- plotmods$clim
 checkmod$summary[1:9,c(1:3,7:10)]
+plot(plotsF$WSGv ~ plotsF$elevs, col = as.numeric(as.factor(plotsF$AreaCode)))
+intercept <- checkmod$summary[1,1] + checkmod$summary[which(rownames(checkmod$summary)=="b_cov[2]"),1] * mean(plotsF$arids) + 
+             checkmod$summary[which(rownames(checkmod$summary)=="b_cov[3]"),1] * mean(plotsF$aridvars) + 
+             checkmod$summary[which(rownames(checkmod$summary)=="b_cov[4]"),1] * mean(plotsF$tempvars)
+abline(intercept,checkmod$summary[which(rownames(checkmod$summary)=="b_cov[1]"),1] ,col="blue")
+
+plot(plotsF$WSGv ~ plotsF$arids, col = as.numeric(as.factor(plotsF$AreaCode)))
+intercept <- checkmod$summary[1,1] + checkmod$summary[which(rownames(checkmod$summary)=="b_cov[1]"),1] * mean(plotsF$elevs) + 
+  checkmod$summary[which(rownames(checkmod$summary)=="b_cov[3]"),1] * mean(plotsF$aridvars) + 
+  checkmod$summary[which(rownames(checkmod$summary)=="b_cov[4]"),1] * mean(plotsF$tempvars)
+abline(intercept,checkmod$summary[which(rownames(checkmod$summary)=="b_cov[2]"),1] ,col="blue")
+
 plot(plotsF$WSGv ~ plotsF$aridvars, col = as.numeric(as.factor(plotsF$AreaCode)))
-abline(checkmod$summary[1,1],checkmod$summary[4,1])
+intercept <- checkmod$summary[1,1] + checkmod$summary[which(rownames(checkmod$summary)=="b_cov[1]"),1] * mean(plotsF$elevs) + 
+  checkmod$summary[which(rownames(checkmod$summary)=="b_cov[2]"),1] * mean(plotsF$arids) + 
+  checkmod$summary[which(rownames(checkmod$summary)=="b_cov[4]"),1] * mean(plotsF$tempvars)
+abline(intercept,checkmod$summary[which(rownames(checkmod$summary)=="b_cov[3]"),1] ,col="blue")
+
+plot(plotsF$WSGv ~ plotsF$tempvars, col = as.numeric(as.factor(plotsF$AreaCode)))
+intercept <- checkmod$summary[1,1] + checkmod$summary[which(rownames(checkmod$summary)=="b_cov[1]"),1] * mean(plotsF$elevs) + 
+  checkmod$summary[which(rownames(checkmod$summary)=="b_cov[2]"),1] * mean(plotsF$arids) + 
+  checkmod$summary[which(rownames(checkmod$summary)=="b_cov[3]"),1] * mean(plotsF$aridvars)
+abline(intercept,checkmod$summary[which(rownames(checkmod$summary)=="b_cov[4]"),1] ,col="blue")
 
 ## Posterior checks
 y <- plotsF$WSGv
@@ -355,16 +424,23 @@ res_intercept <- plotmods$null$mean$res; MI_intercept <- as.data.frame(ape::Mora
 res_area <- plotmods$area$mean$res; MI_area <- as.data.frame(ape::Moran.I(res_area, plot.dists.inv))
 res_elev <- plotmods$elev$mean$res; MI_elev <- as.data.frame(ape::Moran.I(res_elev, plot.dists.inv))
 res_tempvar <- plotmods$TempVar$mean$res; MI_tempvar <- as.data.frame(ape::Moran.I(res_tempvar, plot.dists.inv))
-res_clim <- plotmods$elev$mean$res; MI_clim <- as.data.frame(ape::Moran.I(res_clim, plot.dists.inv))
+res_clim <- plotmods$clim$mean$res; MI_clim <- as.data.frame(ape::Moran.I(res_clim, plot.dists.inv))
 cbind("Model" = c("intercept","area","elev","tempvar","clim"),
       rbind(MI_intercept,MI_area,MI_elev,MI_tempvar,MI_clim))
+
+spatialEco::morans.plot(plotsF$WSGv,coords = cbind(plotsF$long,plotsF$lat))
+spatialEco::morans.plot(plotmods$clim$mean$res,coords = cbind(plotsF$long,plotsF$lat))
+spatialEco::morans.plot(plotmods$clim2$mean$res,coords = cbind(plotsF$long,plotsF$lat))
+spatialEco::morans.plot(plotmods$clim3$mean$res,coords = cbind(plotsF$long,plotsF$lat))
+spatialEco::morans.plot(plotmods$null$mean$res,coords = cbind(plotsF$long,plotsF$lat))
+spatialEco::morans.plot(plotmods$clim4$mean$res,coords = cbind(plotsF$long,plotsF$lat))
 
 res_PCA <- plotmods$PCA$mean$res; MI_clim <- as.data.frame(ape::Moran.I(res_PCA, plot.dists.inv))
 
 ## LOO CV (ELPPD, RMSE)
-loodf <- data.frame(matrix(NA, nrow = length(plotsF$SiteCode), ncol = 4, dimnames = list(rownames=NULL,colnames = c("elpd","ressq","WSGpred","SiteNum"))))
+loodf <- data.frame(matrix(NA, nrow = length(plotsF$SiteCode), ncol = 4, dimnames = list(rownames=NULL,colnames = c("elpd","res","WSGpred","SiteNum"))))
 loosummary <- data.frame(matrix(NA, nrow = 1, ncol = 3, dimnames = list(rownames = NULL, colnames = c("elpd","RMSE","R2"))))
-elpd <- list() ; ressq <- list(); WSGpred <- list(); sitenum <- list()
+elpd <- list() ; res <- list(); WSGpred <- list(); sitenum <- list() ; mu <- list()
 for(i in 1:length(plotsF$SiteCode)){
   print(paste("loo fold ",i," of ", length(plotsF$SiteCode),sep=""))
   
@@ -381,29 +457,32 @@ for(i in 1:length(plotsF$SiteCode)){
   
   mod <- jagsUI::jags(model.file = "JAGS//WSG_plots_noarea_CV.txt", data = moddat, inits = NULL,
                       parameters.to.save = c("alpha","var0","b_cov",
-                                             "WSG.pred","elpd","ressq"),
+                                             "WSG.pred","elpd","res","mup"),
                       n.chains = n.chains, n.iter = n.iter, n.burnin = n.burnin, n.thin = n.thin,
                       parallel = T, n.cores = n.cores)
   
   elpd[[i]] <- mod$mean$elpd
-  ressq[[i]] <- mod$mean$ressq
+  res[[i]] <- mod$mean$res
+  mu[[i]] <- mod$mean$mup
   WSGpred[[i]] <- mod$mean$WSG.pred
   sitenum[[i]] <- plotsF[i,]$SiteNum
 }
 
 loodf$elpd <- unlist(elpd) 
-loodf$ressq <- unlist(ressq)
+loodf$res <- unlist(res)
+loodf$mu <- unlist(mu)
 loodf$WSGpred <- unlist(WSGpred) 
 loodf$SiteNum <- unlist(sitenum)
 
 loosummary$elpd <- sum(unlist(loodf$elpd))
-loosummary$RMSE <- sqrt(sum(loodf$ressq)/length(loodf$ressq))
+loosummary$RMSE <- sqrt(sum((loodf$res)^2)/length(loodf$res))
+#loosummary$R2 <- var(loodf$mu) / (var(loodf$mu) + var(loodf$res))
 loosummary$R2 <- cor(loodf[order(loodf$SiteNum),]$WSGpred,plotsF[order(plotsF$SiteNum),]$WSGv)
 
 CVout_loo <- list("CVsummary" = loosummary, "CVoutput" = loodf)
 
 ## K-fold CV (ELPPD, RMSE)
-spat_cv <- "cluster" # region, area, cluster
+spat_cv <- "area" # region, area, cluster
 
 if(spat_cv == "region"){spatlevel <- plotsF$region} 
   if(spat_cv == "area"){spatlevel <- plotsF$AreaCode}
@@ -414,7 +493,7 @@ sortedplots <- plotsF[order(spatlevel),]$SiteNum
 foldlength <- as.vector(table(spatlevel[order(spatlevel)]))
 last <- cumsum(foldlength)
 first <- last - foldlength + 1
-kfolddf <- data.frame(matrix(NA,nrow = length(plotsF$SiteCode), ncol=5, dimnames = list(rownames=NULL,colnames = c("elpd","resp","WSGpred","SiteNum","foldid"))))
+kfolddf <- data.frame(matrix(NA,nrow = length(plotsF$SiteCode), ncol=6, dimnames = list(rownames=NULL,colnames = c("elpd","res","mu","WSGpred","SiteNum","foldid"))))
 summarydf <- data.frame(matrix(NA, nrow = 1, ncol = 3, dimnames = list(rownames = NULL, colnames = c("elpd","RMSE","R2"))))
 kfold <- list("spatialfold" = kfolddf, "randomfold" = kfolddf)
 CVsummary <- list("spatialfold" = summarydf, "randomfold" = summarydf)
@@ -422,7 +501,7 @@ CVsummary <- list("spatialfold" = summarydf, "randomfold" = summarydf)
 for(j in 1:2){
   ifelse(j == 1, plotorder <- sortedplots, plotorder <- randomplots)
   
-  elpd <- list() ; ressq <- list(); WSGpred <- list(); sitenum <- list(); foldid <- list()
+  elpd <- list() ; res <- list(); WSGpred <- list(); sitenum <- list(); foldid <- list() ; mu <- list()
   for(i in 1:nfolds){
     print(paste(ifelse(j == 1, "Spatial","Random")," fold ",i," of ", nfolds,sep=""))
     
@@ -441,19 +520,21 @@ for(j in 1:2){
     
     mod <- jagsUI::jags(model.file = "JAGS//WSG_plots_noarea_CV.txt", data = moddat, inits = NULL,
                         parameters.to.save = c("alpha","var0","b_cov",
-                                               "WSG.pred","elpd","ressq"),
+                                               "WSG.pred","elpd","res","mup"),
                         n.chains = n.chains, n.iter = n.iter, n.burnin = n.burnin, n.thin = n.thin,
                         parallel = T, n.cores = n.cores)
     
     elpd[[i]] <- mod$mean$elpd
-    ressq[[i]] <- mod$mean$ressq
+    res[[i]] <- mod$mean$res
+    mu[[i]] <- mod$mean$mup
     WSGpred[[i]] <- mod$mean$WSG.pred
     sitenum[[i]] <- pred
     foldid[[i]] <- rep(i, length(pred))
   }
   
   kfold[[j]]$elpd <- unlist(elpd) 
-  kfold[[j]]$resp <- unlist(ressq)
+  kfold[[j]]$res <- unlist(res)
+  kfold[[j]]$mu <- unlist(mu)
   kfold[[j]]$WSGpred <- unlist(WSGpred) 
   kfold[[j]]$SiteNum <- unlist(sitenum) 
   kfold[[j]]$foldid <- unlist(foldid)
@@ -461,15 +542,25 @@ for(j in 1:2){
   kfold[[j]] <- kfold[[j]][order(kfold[[j]]$SiteNum),]
   
   CVsummary[[j]]$elpd <- sum(unlist(kfold[[j]]$elpd))
-  CVsummary[[j]]$RMSE <- sqrt(sum(kfold[[j]]$resp^2)/length(kfold[[j]]$resp))
-  CVsummary[[j]]$R2 <- cor(kfold[[j]][order(kfold[[j]]$SiteNum),]$WSGpred,plotsF[order(plotsF$SiteNum),]$WSGv)
+  CVsummary[[j]]$RMSE <- sqrt(sum((kfold[[j]]$res)^2)/length(kfold[[j]]$res)) 
+  #CVsummary[[j]]$R2 <- var(kfold[[j]]$mu) / (var(kfold[[j]]$mu) + var(kfold[[j]]$res))
+  CVsummary[[j]]$R2 <- (cor(kfold[[j]][order(kfold[[j]]$SiteNum),]$WSGpred,plotsF[order(plotsF$SiteNum),]$WSGv))^2
 }
 if(spat_cv == "region"){CVout_region <- list("CVsummary" = CVsummary, "CVoutput" = kfold)}
 if(spat_cv == "area"){CVout_area <- list("CVsummary" = CVsummary, "CVoutput" = kfold)}
 if(spat_cv == "cluster"){CVout_cluster <- list("CVsummary" = CVsummary, "CVoutput" = kfold)}
 
+## Cross-validation table
+clusfolds <- max(CVout_cluster$CVoutput$randomfold$foldid)
+areafolds <- max(CVout_area$CVoutput$randomfold$foldid)
+regfolds <- max(CVout_region$CVoutput$randomfold$foldid)
+CVtab <- data.frame(cbind(rbind(CVout_loo$CVsummary, CVout_cluster$CVsummary$randomfold, CVout_area$CVsummary$randomfold, CVout_region$CVsummary$randomfold),
+                          rbind(c("elpd" = NA, "RMSE" = NA, "R2" = NA), CVout_cluster$CVsummary$spatialfold, CVout_area$CVsummary$spatialfold, CVout_region$CVsummary$spatialfold)),
+                    row.names = c("leave-one-out", paste(clusfolds, "-fold (cluster)", sep = ""), paste(areafolds , "-fold (area)", sep = ""), paste(regfolds , "-fold (region)", sep = "")))
+write.csv(CVtab,"Output\\WSG\\plotmod_CVtab.csv")
+
 ###############################
-## Compare biomass estimates ## 
+## Compare biomass estimates ##
 ###############################
 plotsF <- left_join(plotsF, as.data.frame(plotsF %>% group_by(AreaCode) %>% summarise(WSGareaMu = mean(WSGv))))
 plotsF <- left_join(plotsF, as.data.frame(plotsF %>% group_by(region) %>% summarise(WSGregMu = mean(WSGv))))
@@ -492,17 +583,38 @@ plotsF$AGBareaEnv <- (plotsF$volha * plotsF$WSGareaEnv) / 1000
 plotsF$AGBclusEnv <- (plotsF$volha * plotsF$WSGclusEnv) / 1000
 plotsF$AGBsiteEnv <- (plotsF$volha * plotsF$WSGsiteEnv) / 1000
 
-plot(AGBind ~ AGBareaMu, plotsF) ; abline(0,1)
-plot(AGBind ~ AGBregMu, plotsF) ; abline(0,1)
-plot(AGBind ~ AGBallMu, plotsF) ; abline(0,1)
+mean(abs(plotsF$AGBind - plotsF$AGBareaMu)) ; mean(plotsF$AGBareaMu) - mean(plotsF$AGBind)
+mean(abs(plotsF$AGBind - plotsF$AGBallMu)) ; mean(plotsF$AGBallMu) - mean(plotsF$AGBind)
+mean(abs(plotsF$AGBind - plotsF$AGBareaEnv)) ; mean(plotsF$AGBareaEnv) - mean(plotsF$AGBind)
+mean(abs(plotsF$AGBind - plotsF$AGBsiteEnv)) ; mean(plotsF$AGBsiteEnv) - mean(plotsF$AGBind)
 
-plot(AGBind ~ AGBregEnv, plotsF) ; abline(0,1)
-plot(AGBind ~ AGBareaEnv, plotsF) ; abline(0,1)
-plot(AGBind ~ AGBclusEnv, plotsF) ; abline(0,1)
-plot(AGBind ~ AGBsiteEnv, plotsF) ; abline(0,1)
-
-cor(plotsF$AGBind,plotsF$AGBareaMu)
-cor(plotsF$AGBind,plotsF$AGBallMu)
-cor(plotsF$AGBind,plotsF$AGBareaEnv)
-cor(plotsF$AGBind,plotsF$AGBsiteEnv)
-
+BMcomp <- as.data.frame(cbind(rbind(mean(abs(plotsF$WSGv - plotsF$WSGsiteEnv)),
+                                    mean(abs(plotsF$WSGv - plotsF$WSGclusEnv)),
+                                    mean(abs(plotsF$WSGv - plotsF$WSGareaEnv)),
+                                    mean(abs(plotsF$WSGv - plotsF$WSGregEnv)),
+                                    mean(abs(plotsF$WSGv - plotsF$WSGareaMu)),
+                                    mean(abs(plotsF$WSGv - plotsF$WSGregMu)),
+                                    mean(abs(plotsF$WSGv - plotsF$WSGallMu))),
+                              rbind(mean(plotsF$WSGsiteEnv) - mean(plotsF$WSGv),
+                                    mean(plotsF$WSGclusEnv) - mean(plotsF$WSGv),
+                                    mean(plotsF$WSGareaEnv) - mean(plotsF$WSGv),
+                                    mean(plotsF$WSGregEnv) - mean(plotsF$WSGv),
+                                    mean(plotsF$WSGareaMu) - mean(plotsF$WSGv),
+                                    mean(plotsF$WSGregMu) - mean(plotsF$WSGv),
+                                    mean(plotsF$WSGallMu) - mean(plotsF$WSGv)),
+                              rbind(mean(abs(plotsF$AGBind - plotsF$AGBsiteEnv)),
+                                    mean(abs(plotsF$AGBind - plotsF$AGBclusEnv)),
+                                    mean(abs(plotsF$AGBind - plotsF$AGBareaEnv)),
+                                    mean(abs(plotsF$AGBind - plotsF$AGBregEnv)),
+                                    mean(abs(plotsF$AGBind - plotsF$AGBareaMu)),
+                                    mean(abs(plotsF$AGBind - plotsF$AGBregMu)),
+                                    mean(abs(plotsF$AGBind - plotsF$AGBallMu))),
+                              rbind(mean(plotsF$AGBsiteEnv) - mean(plotsF$AGBind),
+                                    mean(plotsF$AGBclusEnv) - mean(plotsF$AGBind),
+                                    mean(plotsF$AGBareaEnv) - mean(plotsF$AGBind),
+                                    mean(plotsF$AGBregEnv) - mean(plotsF$AGBind),
+                                    mean(plotsF$AGBareaMu) - mean(plotsF$AGBind),
+                                    mean(plotsF$AGBregMu) - mean(plotsF$AGBind),
+                                    mean(plotsF$AGBallMu) - mean(plotsF$AGBind))),
+                        row.names = c("Site","Cluster","Area","Region","Area mean", "Region mean", "Overall mean"))
+names(BMcomp) <- c("RMSD","Bias","RMSD","Bias")

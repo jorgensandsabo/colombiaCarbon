@@ -12,7 +12,7 @@ cat("model {
     for(n in 1:Nobs){
       WSG[n] ~ dnorm(mu[n], tau1 * speciesid[n] + tau0 * abs(1-speciesid[n]))
       mu[n] <- alpha + b_vol * vol[n] + b_spec[Species[n]] * speciesid[n] + b_site[SiteNum[n]]
-      
+
       res[n] <- WSG[n] - mu[n]
       WSG.pred[n] ~ dnorm(mu[n], tau1 * speciesid[n] + tau0 * abs(1-speciesid[n]))
       res.pred[n] <- WSG.pred[n] - mu[n]
@@ -73,14 +73,14 @@ cat("model {
     for(n in 1:Nobs){
       WSG[n] ~ dnorm(mu[n], tau1 * speciesid[n] + tau0 * abs(1-speciesid[n]))
       mu[n] <- alpha + b_vol * vol[n] + b_spec[Species[n]] * speciesid[n] + b_site[SiteNum[n]]
-
+      
       res[n] <- WSG[n] - mu[n]
       WSG.pred[n] ~ dnorm(mu[n], tau1 * speciesid[n] + tau0 * abs(1-speciesid[n]))
       res.pred[n] <- WSG.pred[n] - mu[n]
-
+      
       loglik[n] <- logdensity.norm(WSG[n], mu[n], tau1 * speciesid[n] + tau0 * abs(1-speciesid[n]))
     }
-
+    
     #Priors
     sigma1 ~ dgamma(1,5)
     var1 <- sigma1^2
@@ -219,10 +219,10 @@ cat("model {
     for(i in 1:ncov){
       b_cov[i] ~ dnorm(0,2)
     }
-    
+
     # Derived parameters
-    fit <- sum(res[])
-    fit.pred <- sum(res.pred[])
+    RMSE <- sum(pow(res[],2))/Nobs
+    RMSE.pred <- sum(pow(res.pred[],2))/Nobs
     }
 ",fill=TRUE)
 sink()
@@ -382,7 +382,6 @@ cat("model {
       WSG.pred[n] ~ dnorm(mup[n], tau)
     
       res[n] <- WSGp[n] - mup[n]
-      ressq[n] <- pow(res[n],2)
       elpd[n] <- logdensity.norm(WSGp[n], mup[n], tau)
     }
     
@@ -396,5 +395,51 @@ cat("model {
       b_cov[i] ~ dnorm(0,2)
     }
   }
+",fill=TRUE)
+sink()
+
+sink("JAGS//WSG_plots_fullspatial.txt")
+cat("model {
+    
+    #Likelihood model
+    for(n in 1:Nobs){
+      
+      WSG[n] ~ dnorm(mu[n], tau)
+      mu[n] <- alpha +  inprod(b_cov[],cov[n,]) + b_cluster[ClusNum[n]]
+      
+      res[n] <- WSG[n] - mu[n]
+      WSG.pred[n] ~ dnorm(mu[n], tau)
+      res.pred[n] <- WSG.pred[n] - mu[n]
+      
+      loglik[n] <- logdensity.norm(WSG[n], mu[n], tau)
+    }
+    
+    sigma ~ dgamma(1,5)
+    var0 <- pow(sigma,2)
+    tau <- 1/var0
+    alpha ~ dnorm(0.5,2)T(0,)
+    
+    for(i in 1:ncov){
+      b_cov[i] ~ dnorm(0,2)
+    }
+    
+    for(i in 1:narea){
+      b_area[i] ~ dnorm(0, tauarea)
+    }
+    for(j in 1:ncluster){
+      b_cluster[j] ~ dnorm(b_area[AreaNumC[j]], taucluster)
+    } 
+    
+    sdarea ~ dgamma(1,5)
+    vararea <- pow(sdarea,2)
+    tauarea <- 1/vararea
+    sdcluster ~ dgamma(1,5)
+    varcluster <- pow(sdcluster,2)
+    taucluster <- 1/varcluster
+    
+    # Derived parameters
+    RMSE <- sum(pow(res[],2))/Nobs
+    RMSE.pred <- sum(pow(res.pred[],2))/Nobs
+    }
 ",fill=TRUE)
 sink()
