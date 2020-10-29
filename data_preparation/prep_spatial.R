@@ -40,28 +40,73 @@ for(i in 1:length(plotcoords)){
     aet[j] <- raster::extract(aetrasters[[j]],sp::spTransform(plotcoords[i],raster::projection(aetrasters[[j]])))
     srad[j] <- raster::extract(sradrasters[[j]],sp::spTransform(plotcoords[i],raster::projection(sradrasters[[j]])))
   }
+  
   biovariables[[i]] <- dismo::biovars(prec,tmin,tmax)
   tavgs[[i]] <- tavg;pets[[i]] <- pet;precs[[i]] <- prec;aets[[i]] <- aet;srads[[i]] <- srad
 }
 
 # Add WorldClim data to Spatialdata
-Spatialdata$TotPrec <- NA;Spatialdata$MeanTemp <- NA;Spatialdata$PrecVar <- NA;Spatialdata$TempVar <- NA
+#Spatialdata$TotPrec <- NA;Spatialdata$MeanTemp <- NA;Spatialdata$PrecVar <- NA;Spatialdata$TempVar <- NA
+Spatialdata$TotPrec <- NA
+Spatialdata$PrecVar <- NA
+Spatialdata$PrecMax <- NA
+Spatialdata$PrecMin <- NA
+Spatialdata$PrecWetQ <- NA
+Spatialdata$PrecDryQ <- NA
+Spatialdata$PrecWarmQ <- NA
+Spatialdata$MeanTemp <- NA
+Spatialdata$TempVar <- NA
+Spatialdata$TempMax <- NA
+Spatialdata$TempMin <- NA
+Spatialdata$TempRange <- NA
+Spatialdata$MeanDiurR <- NA
+Spatialdata$Isotherm <- NA
+Spatialdata$TempWetQ <- NA
+Spatialdata$TempDryQ <- NA
+Spatialdata$TempWarmQ <- NA
+Spatialdata$TempColdQ <- NA
+Spatialdata$MeanArid <- NA
+Spatialdata$AridMax <- NA
+Spatialdata$AridMin <- NA
+Spatialdata$AridVar <- NA
+Spatialdata$DryMonths <- NA
+Spatialdata$CWDmax <- NA
+Spatialdata$SolRad <- NA
 for(i in 1:nrow(Spatialdata)){
+  WD <- precs[[i]]-pets[[i]]
+  ordWD <- c(seq(first(which(WD == max(WD))), 12, 1), seq(1, first(which(WD == max(WD)))-1, 1))
+  WD <- WD[order(ordWD)]
+  WD[1] <- 0
+  for(j in 2:length(WD)){
+    ifelse(WD[j-1] + WD[j] < 0, WD[j] <- WD[j-1] + WD[j], WD[j] <- 0)
+  }
+  
   Spatialdata$TotPrec[i] <- biovariables[[i]][12]
   Spatialdata$PrecVar[i] <- biovariables[[i]][15]
   Spatialdata$PrecMax[i] <- biovariables[[i]][13]
   Spatialdata$PrecMin[i] <- biovariables[[i]][14]
+  Spatialdata$PrecWetQ[i] <- biovariables[[i]][16]
+  Spatialdata$PrecDryQ[i] <- biovariables[[i]][17]
+  Spatialdata$PrecWarmQ[i] <- biovariables[[i]][18]
   Spatialdata$MeanTemp[i] <- biovariables[[i]][1]
   Spatialdata$TempVar[i] <- biovariables[[i]][4]
   Spatialdata$TempMax[i] <- biovariables[[i]][5]
   Spatialdata$TempMin[i] <- biovariables[[i]][6]
+  Spatialdata$TempRange[i] <- biovariables[[i]][7]
+  Spatialdata$MeanDiurR[i] <- biovariables[[i]][2]
+  Spatialdata$Isotherm[i] <- biovariables[[i]][3]
+  Spatialdata$TempWetQ[i] <- biovariables[[i]][8]
+  Spatialdata$TempDryQ[i] <- biovariables[[i]][9]
+  Spatialdata$TempWarmQ[i] <- biovariables[[i]][10]
+  Spatialdata$TempColdQ[i] <- biovariables[[i]][11]
   Spatialdata$MeanArid[i] <- mean(precs[[i]])/mean(pets[[i]])
   Spatialdata$AridMax[i] <- min(precs[[i]]/pets[[i]])
   Spatialdata$AridMin[i] <- max(precs[[i]]/pets[[i]])
   Spatialdata$AridVar[i] <- var(precs[[i]]/pets[[i]])/Spatialdata$MeanArid[i]
+  Spatialdata$DryMonths[i] <- length(which(precs[[2]]/pets[[2]] < 1))
+  Spatialdata$CWDmax[i] <- min(WD)
   Spatialdata$SolRad[i] <- mean(srads[[i]])
 }
-
 
 ########################
 ###### ELEVATIONS ######
