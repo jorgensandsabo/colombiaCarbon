@@ -60,56 +60,26 @@ sink()
 #####################
 ## Plot WSG models ##
 #####################
-
-# # Non-spatial models
-# sink("JAGS//WSG_plots_null.txt")
-# cat("model {
-# 
-#     #Likelihood model
-#     for(n in 1:Nobs){
-#       WSG[n] ~ dnorm(mu[n], tau)
-#       mu[n] <- alpha
-# 
-#      res[n] <- WSG[n] - mu[n]
-#      WSG.pred[n] ~ dnorm(mu[n], tau)
-#      res.pred[n] <- WSG.pred[n] - mu[n]
-# 
-#      loglik[n] <- logdensity.norm(WSG[n], mu[n], tau)
-#    }
-# 
-#    #Priors
-#    var0 <- 1/tau
-#    tau ~ dgamma(1,0.001)
-#    alpha ~ dnorm(0.5,2)T(0,)
-#    }
-# ",fill=TRUE)
-# sink()
-
+# Non-spatial models
 sink("JAGS//WSG_plots_null.txt")
 cat("model {
-    
+
     #Likelihood model
     for(n in 1:Nobs){
-      mu[n] <- alpha
-      
-      for(i in 1:ndraws){
-        WSG[n,i] ~ dnorm(mu[n], tau)
-        
-        res_i[n,i] <- WSG[n,i] - mu[n]
-        loglik_i[n,i] <- logdensity.norm(WSG[n,i], mu[n], tau)
-      }
-      
-      MSE[n] <- sum(pow(res_i[n,],2)) / ndraws
-      loglik[n] <- sum(loglik_i[n,])
-      
-      WSG.pred[n] ~ dnorm(mu[n], tau)
-    }
-    
-    #Priors
-    tau ~ dgamma(1,0.001)
-    var0 <- 1/tau
-    alpha ~ dnorm(0.5,2)T(0,)
-    }
+     WSG[n] ~ dnorm(mu[n], tau)
+     mu[n] <- alpha
+     
+     res[n] <- WSG[n] - mu[n]
+     WSG.pred[n] ~ dnorm(mu[n], tau)
+
+     loglik[n] <- logdensity.norm(WSG[n], mu[n], tau)
+   }
+
+   #Priors
+   var0 <- 1/tau
+   tau ~ dgamma(1,0.001)
+   alpha ~ dnorm(0.5,2)T(0,)
+   }
 ",fill=TRUE)
 sink()
 
@@ -118,19 +88,13 @@ cat("model {
     
     #Likelihood model
     for(n in 1:Nobs){
+      WSG[n] ~ dnorm(mu[n], tau)
       mu[n] <- alpha + inprod(b_cov[],cov[n,])
-      
-      for(i in 1:ndraws){
-        WSG[n,i] ~ dnorm(mu[n], tau)
         
-        res_i[n,i] <- WSG[n,i] - mu[n]
-        loglik_i[n,i] <- logdensity.norm(WSG[n,i], mu[n], tau)
-      }
-      
-      MSE[n] <- sum(pow(res_i[n,],2)) / ndraws
-      loglik[n] <- sum(loglik_i[n,])
-      
+      res[n] <- WSG[n] - mu[n]
       WSG.pred[n] ~ dnorm(mu[n], tau)
+      
+      loglik[n] <- logdensity.norm(WSG[n], mu[n], tau)
     }
     
     #Priors
@@ -141,35 +105,26 @@ cat("model {
     for(i in 1:ncov){
       b_cov[i] ~ dnorm(0,2)
     }
-    
-    varspatial <- 0
   }
 ",fill=TRUE)
 sink()
 
 
 # Spatial models
-
 sink("JAGS//WSG_plots_null_spatial.txt")
 cat("model {
     
     #Likelihood model
     for(n in 1:Nobs){
       mu[n] <- alpha + b_spatial[SpatialNum[n]]
-      
-      for(i in 1:ndraws){
-        WSG[n,i] ~ dnorm(mu[n], tau)
+      WSG[n] ~ dnorm(mu[n], tau)
         
-        res_i[n,i] <- WSG[n,i] - mu[n]
-        loglik_i[n,i] <- logdensity.norm(WSG[n,i], mu[n], tau)
-      }
-      
-      MSE[n] <- sum(pow(res_i[n,],2)) / ndraws
-      loglik[n] <- sum(loglik_i[n,])
-      
+      res[n] <- WSG[n] - mu[n]
       WSG.pred[n] ~ dnorm(mu[n], tau)
+      
+      loglik[n] <- logdensity.norm(WSG[n], mu[n], tau)
     }
-    
+
     #Priors
     var0 <- 1/tau
     tau ~ dgamma(1,0.001)
@@ -190,27 +145,17 @@ cat("model {
     #Likelihood model
     for(n in 1:Nobs){
       mu[n] <- alpha + inprod(b_cov[],cov[n,]) + b_spatial[SpatialNum[n]]
+      WSG[n] ~ dnorm(mu[n], tau)
       
-      for(i in 1:ndraws){
-        WSG[n,i] ~ dnorm(mu[n], tau)
-        
-        res_i[n,i] <- WSG[n,i] - mu[n]
-        loglik_i[n,i] <- logdensity.norm(WSG[n,i], mu[n], tau)
-      }
-      
-      MSE[n] <- sum(pow(res_i[n,],2)) / ndraws
-      loglik[n] <- sum(loglik_i[n,])
-      
+      res[n] <- WSG[n] - mu[n]
       WSG.pred[n] ~ dnorm(mu[n], tau)
+      
+      loglik[n] <- logdensity.norm(WSG[n], mu[n], tau)
     }
     
     #Priors
-    sd0 ~ dt(0, 0.75, 1)T(0,)
-    var0 <- pow(sd0, 2)
-    tau <- 1/var0
-    
-    #var0 <- 1/tau
-    #tau ~ dgamma(1,0.001)
+    var0 <- 1/tau
+    tau ~ dgamma(1,0.001)
     alpha ~ dnorm(0.5,2)T(0,)
     
     for(i in 1:ncov){
@@ -220,12 +165,8 @@ cat("model {
     for(i in 1:nspatial){
       b_spatial[i] ~ dnorm(0,tauspatial)
     }
-    sdspatial ~ dt(0, 0.75, 1)T(0,)
-    varspatial <- pow(sdspatial, 2)
-    tauspatial <- 1/varspatial
-    
-    #varspatial <- 1/tauspatial
-    #tauspatial ~ dgamma(1,0.001)
+    varspatial <- 1/tauspatial
+    tauspatial ~ dgamma(1,0.001)
   }
 ",fill=TRUE)
 sink()
@@ -237,23 +178,16 @@ cat("model {
     #Likelihood model
     for(n in 1:Nobst){
       mut[n] <- alpha + inprod(b_cov[],covt[n,])
-      
-      for(i in 1:ndraws){
-        WSGt[n,i] ~ dnorm(mut[n], tau)
-      }
+      WSGt[n] ~ dnorm(mut[n], tau)
     }
     
     for(n in 1:Nobsp){
       mup[n] <- alpha + inprod(b_cov[],covp[n,])
       WSG.pred[n] ~ dnorm(mup[n], tau)
-    
-      for(i in 1:ndraws){
-        res_i[n,i] <- WSGp[n,i] - mup[n]
-        loglik_i[n,i] <- logdensity.norm(WSGp[n,i], mup[n], tau)
-      }
+      res[n] <- WSGp[n] - mup[n]
+      prederror[n] <- WSG.pred[n] - WSGp[n]
       
-      MSE[n] <- sum(pow(res_i[n,],2)) / ndraws
-      elpd[n] <- sum(loglik_i[n,])
+      loglik[n] <- logdensity.norm(WSGp[n], mup[n], tau)
     }
     
     #Priors
@@ -274,34 +208,23 @@ cat("model {
     
     #Likelihood model
     for(n in 1:Nobst){
-      mut[n] <- alpha + inprod(b_cov[],covt[n,])
-      
-      for(i in 1:ndraws){
-        WSGt[n,i] ~ dnorm(mut[n], tau)
-      }
+      mut[n] <- alpha
+      WSGt[n] ~ dnorm(mut[n], tau)
     }
     
     for(n in 1:Nobsp){
-      mup[n] <- alpha + inprod(b_cov[],covp[n,])
+      mup[n] <- alpha
       WSG.pred[n] ~ dnorm(mup[n], tau)
+      res[n] <- WSGp[n] - mup[n]
+      prederror[n] <- WSG.pred[n] - WSGp[n]
       
-      for(i in 1:ndraws){
-        res_i[n,i] <- WSGp[n,i] - mup[n]
-        loglik_i[n,i] <- logdensity.norm(WSGp[n,i], mup[n], tau)
-      }
-      
-      MSE[n] <- sum(pow(res_i[n,],2)) / ndraws
-      elpd[n] <- sum(loglik_i[n,])
+      loglik[n] <- logdensity.norm(WSGp[n], mup[n], tau)
     }
     
     #Priors
     var0 <- 1/tau
     tau ~ dgamma(1,0.001)
     alpha ~ dnorm(0.5,2)T(0,)
-    
-    for(i in 1:ncov){
-      b_cov[i] ~ dnorm(0,2)
-    }
   }
 ",fill=TRUE)
 sink()
