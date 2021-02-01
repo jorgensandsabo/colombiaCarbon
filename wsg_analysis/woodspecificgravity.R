@@ -100,9 +100,26 @@ treesF <- left_join(treesF, plotdata[,c("SiteCode","AreaNum")])
 treesF <- left_join(treesF, plotdata[,c("SiteCode","RegionNum")])
 treesF <- left_join(treesF, plotdata[,c("SiteCode","Region")])
 
+### Colour and region names for plots and legends
+unique(treesF$Region)
+treesF$Region[which(treesF$Region == "oriental eastern slope")] <- "Oriental - east"
+treesF$Region[which(treesF$Region == "oriental western slope")] <- "Oriental - west"
+treesF$Region[which(treesF$Region == "central-eastern")] <- "Central - south"
+treesF$Region[which(treesF$Region == "santa_marta")] <- "Santa Marta"
+treesF$Region[which(treesF$Region == "central")] <- "Central - north"
+treesF$Region[which(treesF$Region == "amazonia")] <- "Amazon"
+treesF$Region[which(treesF$Region == "occidental")] <- "Occidental"
+
+unique(treesF[order(treesF$RegionNum),]$Region)
+regcol <- c("red","green","blue","yellow","grey","black","white")
+regcol <- c("#267234","#656150","#b5b09e","#84a955","#84a955","#6f5a67","#44437e")
+regcol <- c("#189a39","#55928f","#b5b09e","#84a955","#decd60","#6f5a67","#44437e")
+
+
 ### Plot dataset
 plotsF <- treesF %>% group_by(SiteCode) %>% summarise(SiteNum = first(SiteNum), ClusNum = first(ClusNum), AreaNum = first(AreaNum), RegionNum = first(RegionNum),
-                                                      ntree = n(), ncore = sum(WSG/WSG,na.rm=T), vol = sum(vol), Region = first(Region))
+                                                      ntree = n(), ncore = sum(WSG/WSG,na.rm=T), vol = sum(vol), Region = first(Region),
+                                                      nQuercus = sum(Species == "Quercus Humboldtii"), nSpec = sum(!Species %in% c("Quercus Humboldtii","nospec")))
 plotsF <- as.data.frame(left_join(plotsF,Spatial))
 plotsF$region <- NULL
 plotsF <- data.frame(plotsF, "ElevS" = plotsF$ALOSelev / 1000, "TotPrecS" = plotsF$TotPrec/1000, "TempVarS" = scale(plotsF$TempVar),
@@ -506,33 +523,56 @@ MeanPred <- data.frame(WSG = WSGtreemod$mean$WSG.pred, SiteNum = treesF$SiteNum,
 range(data.frame(MeanPred %>% group_by(AreaNum) %>% summarise(WSGm = mean(WSG)))[,2]) ; max(data.frame(MeanPred %>% group_by(AreaNum) %>% summarise(WSGm = mean(WSG)))[,2]) - min(data.frame(test %>% group_by(AreaNum) %>% summarise(WSGm = mean(WSG)))[,2])
 mean(data.frame(MeanPred %>% group_by(AreaNum, ClusNum) %>% summarise(WSGm = mean(WSG)) %>% group_by(AreaNum) %>% summarise(max(WSGm)-min(WSGm)))[,2]) ; max(data.frame(MeanPred %>% group_by(AreaNum, ClusNum) %>% summarise(WSGm = mean(WSG)) %>% group_by(AreaNum) %>% summarise(max(WSGm)-min(WSGm)))[,2])
 mean(data.frame(MeanPred %>% group_by(ClusNum, SiteNum) %>% summarise(WSGm = mean(WSG)) %>% group_by(ClusNum) %>% summarise(max(WSGm)-min(WSGm)))[,2]) ; max(data.frame(MeanPred %>% group_by(ClusNum, SiteNum) %>% summarise(WSGm = mean(WSG)) %>% group_by(ClusNum) %>% summarise(max(WSGm)-min(WSGm)))[,2])
-
                                                   
 ## Whisker plot - random effects
-# Spatial random effects output dataframes
-b_area <- data.frame(AreaNum = 1:length(unique(treesF$AreaNum)), bArea = WSGtreemod$mean$b_area, bArea95l = WSGtreemod$q2.5$b_area, barea95u = WSGtreemod$q97.5$b_area)
-b_cluster <- data.frame(ClusNum = 1:length(unique(treesF$Cluster)), bCluster = WSGtreemod$mean$b_cluster, bCluster95l = WSGtreemod$q2.5$b_cluster, bCluster95u = WSGtreemod$q97.5$b_cluster)
+# Spatial random effects output dataframes, sorted by mean WSG in regions
+b_area <- data.frame(AreaNum = 1:length(unique(treesF$AreaNum)), bArea = WSGtreemod$mean$b_area, bArea95l = WSGtreemod$q2.5$b_area, bArea95u = WSGtreemod$q97.5$b_area, RegionNum = data.frame(treesF %>% group_by(AreaNum) %>% summarise(first(RegionNum)))[,2])
+  b_area <- left_join(b_area, b_area %>% group_by(RegionNum) %>% summarise(RegOrd = mean(bArea)))
+  b_area <- b_area[order(b_area$RegOrd, b_area$bArea),]
+b_cluster <- data.frame(ClusNum = 1:length(unique(treesF$Cluster)), bCluster = WSGtreemod$mean$b_cluster, bCluster95l = WSGtreemod$q2.5$b_cluster, bCluster95u = WSGtreemod$q97.5$b_cluster, RegionNum = data.frame(treesF %>% group_by(ClusNum) %>% summarise(first(RegionNum)))[,2])
+  b_cluster <- left_join(b_cluster, b_cluster %>% group_by(RegionNum) %>% summarise(RegOrd = mean(bCluster)))
+  b_cluster <- b_cluster[order(b_cluster$RegOrd, b_cluster$bCluster),]
 b_site <- data.frame(SiteNum = 1:length(unique(treesF$SiteCode)), bSite = WSGtreemod$mean$b_site, bSite95l = WSGtreemod$q2.5$b_site, bSite95u = WSGtreemod$q97.5$b_site, AreaNum = data.frame(treesF %>% group_by(SiteNum) %>% summarise(first(AreaNum)))[,2], ClusNum = data.frame(treesF %>% group_by(SiteNum) %>% summarise(first(ClusNum)))[,2], RegionNum = data.frame(treesF %>% group_by(SiteNum) %>% summarise(first(RegionNum)))[,2])
+  b_site <- left_join(b_site, b_site %>% group_by(RegionNum) %>% summarise(RegOrd = mean(bSite)))
+  b_site <- b_site[order(b_site$RegOrd, b_site$bSite),]
 
-# Sort dataframes by increasing WSG
-b_site <- left_join(b_site, b_site %>% group_by(RegionNum) %>% summarise(RegOrd = mean(bSite)))
-b_site <- left_join(b_site, b_site %>% group_by(AreaNum) %>% summarise(AreaOrd = mean(bSite)))
-b_site <- left_join(b_site, b_site %>% group_by(ClusNum) %>% summarise(ClusOrd = mean(bSite)))
-b_site <- b_site[order(b_site$RegOrd, b_site$AreaOrd, b_site$ClusOrd, b_site$bSite),]
 
-# Plot by site
-#par(mfrow=c(3,1))
-#tiff(file = "Output\\WSG\\plotwhisker.tiff", width = 6000, height = 3000, res = 900)
-plot(NA, ylim = c(min(b_site$bSite95l), max(b_site$bSite95u)), xlim = c(0,nrow(b_site)), xlab = "Site index", ylab = "Random effect")
-for(i in 1:nrow(b_site)){segments(x0=i, y0=b_site$bSite95l[i], x1=i, y1=b_site$bSite95u[i])}
-points(b_site$bSite, pch = 19, cex = 0.7, col = b_site$AreaNum)
-abline(h = 0)
-#dev.off()
+tiff(file = "Output\\WSG\\plotwhisker.tiff", width = 6000, height = 3000, res = 900)
 
-#plot(NA, ylim = c(min(b_cluster$bCluster95l), max(b_cluster$bCluster95u)), xlim = c(0,nrow(b_cluster)), xlab = "cluster index", ylab = "Random effect")
-#for(i in 1:nrow(b_cluster)){segments(x0=i, y0=b_cluster$bCluster95l[i], x1=i, y1=b_cluster$bCluster95u[i])}
-#points(b_cluster$bCluster, pch = 19, cex = 0.7, col = b_cluster$AreaNum)
-#abline(h = 0)
+  layout(matrix(c(1,1,1,2,3,4), 2, 3, byrow = TRUE), widths=c(0.6,0.2,0.2), heights=c(3,2.5))
+  par(mar = c(0.4,0.4,0.1,0.1), oma = c(0,3,0,0))
+  
+  plot(NA, ylim = c(min(b_cluster$bCluster95l, b_area$bArea95l, b_site$bSite95l), max(b_cluster$bCluster95u, b_area$bArea95u, b_site$bSite95u)), 
+       xlim = c(0,nrow(b_site)), xaxt='n', yaxt = 'n', fg = "gray60")
+  for(i in 1:nrow(b_site)){segments(x0=i, y0=b_site$bSite95l[i], x1=i, y1=b_site$bSite95u[i])}
+  points(b_site$bSite, pch = 19, cex = 0.7, col = regcol[b_site$RegionNum])
+  axis(2)
+  text(x = 5, y = 0.2, "Plot", cex = 1)
+  abline(h = 0)
+  
+  plot(NA, ylim = c(min(b_cluster$bCluster95l, b_area$bArea95l, b_site$bSite95l), max(b_cluster$bCluster95u, b_area$bArea95u, b_site$bSite95u)), 
+       xlim = c(0,nrow(b_cluster)), xaxt='n', yaxt = 'n', fg = "gray60")
+  for(i in 1:nrow(b_cluster)){segments(x0=i, y0=b_cluster$bCluster95l[i], x1=i, y1=b_cluster$bCluster95u[i])}
+  points(b_cluster$bCluster, pch = 19, cex = 0.7, col = regcol[b_cluster$RegionNum])
+  axis(2)
+  text(x = 5, y = 0.2, "Cluster", cex = 1)
+  abline(h = 0)
+  
+  plot(NA, ylim = c(min(b_cluster$bCluster95l, b_area$bArea95l, b_site$bSite95l), max(b_cluster$bCluster95u, b_area$bArea95u, b_site$bSite95u)), 
+       xlim = c(0,nrow(b_area)), yaxt='n', xaxt='n', fg = "gray60")#, mar = c(5,0.5,0.1,2), )
+  for(i in 1:nrow(b_area)){segments(x0=i, y0=b_area$bArea95l[i], x1=i, y1=b_area$bArea95u[i])}
+  points(b_area$bArea, pch = 19, cex = 0.7, col = regcol[b_area$RegionNum])
+  text(x = 5, y = 0.2, "Area", cex = 1)
+  abline(h = 0)
+  
+  plot(NULL ,xaxt='n',yaxt='n',bty='n',ylab='',xlab='', xlim=0:1, ylim=0:1)
+  legend("center", legend =  unique(treesF[order(treesF$RegionNum),]$Region), pch=16, pt.cex=1.5, cex=1, bty='n',
+         col = regcol, title = "Region", title.adj = -0.005)
+  #legend(x = 0.1, y = 0.99, legend =  "Region", cex=2, bty='n', y.intersp = 0, x.intersp = 0)
+  
+  mtext("Spatial effect on WSG", at = 0.5, side = 2, outer = TRUE, line = 2, cex = 0.7)
+
+dev.off()
 
 ######################################################################
 #### Plot models
@@ -702,15 +742,17 @@ rownames(AGBtab) <- c(unique(plotsF$Region)[order(unique(plotsF$RegionNum))], "O
 
 #write.csv(round(AGBtab,2) ,"Output\\WSG\\AGBtab.csv")
 
-###############################
-## Compare biomass estimates ##
-###############################
+#############################
+## Error/bias in AGB table ##
+#############################
+plotsF <- plotsF[order(plotsF$SiteNum),]
 #WSGdraws <- readRDS("Output\\WSG\\WSGdraws.RDS")
 #kfolds <- readRDS("Output\\WSG\\kfolds.RDS")
 
 # Extract relative errors from k-fold CV of plot models
 WSGmoderror <- lapply(lapply(kfolds, function(x)x$spatialfold), function(z)  z$prederror[,order(z$sitenum)])
-AGBmoderror <- lapply(WSGmoderror, function(x) apply(x, 1, function(y) y * plotsF$volha))                 
+AGBmoderror <- lapply(WSGmoderror, function(x) apply(x, 1, function(y) y * plotsF$volha))
+AGBmoderror <- lapply(AGBmoderror, function(x) as.data.frame(x))
 
 # Calculate errors from using spatial average
 AGBdraws_plot <- WSGdraws[,-1] * plotsF$volha
@@ -719,122 +761,77 @@ AGBdraws_area <- lapply(split(AGBdraws_plot, plotsF$AreaNum), function(x) do.cal
 AGBdraws_region <- lapply(split(AGBdraws_plot, plotsF$RegionNum), function(x) do.call("rbind",x))
 
 AGBmeanerror <- list()
-AGBmeanerror$cluster <- t(do.call("cbind", lapply(AGBdraws_region, function(x) rowMeans(x) - x)))      # PLOT-WISE DIFFERENCE FROM CLUSTER MEAN
-AGBmeanerror$area <- t(do.call("cbind", lapply(AGBdraws_area, function(x) rowMeans(x) - x)))        # PLOT-WISE DIFFERENCE FROM AREA MEAN
-AGBmeanerror$region <- t(do.call("cbind", lapply(AGBdraws_region, function(x) rowMeans(x) - x)))       # PLOT-WISE DIFFERENCE FROM REGION MEAN
+#AGBmeanerror$cluster <- t(do.call("cbind", lapply(AGBdraws_cluster, function(x) rowMeans(x) - x)))[order(plotsF$ClusNum)]      # PLOT-WISE DIFFERENCE FROM CLUSTER MEAN
+AGBmeanerror$area <- t(do.call("cbind", lapply(AGBdraws_area, function(x) rowMeans(x) - x)))[order(plotsF$AreaNum),]          # PLOT-WISE DIFFERENCE FROM AREA MEAN
+AGBmeanerror$region <- t(do.call("cbind", lapply(AGBdraws_region, function(x) rowMeans(x) - x)))[order(plotsF$RegionNum),]      # PLOT-WISE DIFFERENCE FROM REGION MEAN
 AGBmeanerror$overall <- apply(AGBdraws_plot, 2, function(x) mean(x) - x)                               # PLOT-WISE DIFFERENCE FROM OVERALL MEAN
+AGBmeanerror <- lapply(AGBmeanerror, as.data.frame)
 
 # Table
-mean(apply(do.call("cbind",AGBmeanerror_clus), 2, mean))
-test <- lapply(lapply(AGBmoderror, function(x) split(x, plotsF$RegionNum)), function(y) do.call("cbind", y))
+AGBmoderror_byreg <- lapply(AGBmoderror, function(x) lapply(split(x, plotsF$RegionNum), function(y) do.call("rbind",y)))
+AGBmeanerror_byreg <- lapply(AGBmeanerror, function(x) lapply(split(x, plotsF$RegionNum), function(y) do.call("rbind",y)))
 
-test <- split(t(AGBmoderror$plot), plotsF$RegionNum)
-test2 <- lapply(test, function(x) matrix(x, nrow = ncol(AGBmoderror[[1]])))
+MSDtab <- rbind(
+  cbind(
+    do.call("cbind", lapply(lapply(AGBmoderror_byreg, function(x) lapply(x, function(y) mean(rowMeans(y)))), unlist)),
+    do.call("cbind", lapply(lapply(AGBmeanerror_byreg, function(x) lapply(x, function(y) mean(rowMeans(y)))), unlist))
+  ),
+  cbind(
+    do.call("cbind", lapply(AGBmoderror, function(x) mean(as.matrix(x)))),
+    do.call("cbind", lapply(AGBmeanerror, function(x) mean(as.matrix(x))))))
 
-  # Overall row
-  lapply(AGBmoderror, function(x) mean(apply(abs(x), 2, median))) # Overall MAD from model
-  lapply(AGBmeanerror, function(x) mean(apply(abs(x), 2, median))) # Overall MAD from averages
-  lapply(AGBmoderror, function(x) mean(apply(x, 2, mean)))   # Overall MSD from model
-  lapply(AGBmeanerror, function(x) mean(apply(x, 2, mean)))  # Overall MSD from averages
-  
-  
-  
-  
-  
-  
-  
-  
-plotsF <- left_join(plotsF,plotdata[,c("SiteCode","Region")])
+MSDtab_CIl <- rbind(
+  cbind(
+    do.call("cbind", lapply(lapply(AGBmoderror_byreg, function(x) lapply(x, function(y) rowMeans(y)[order(rowMeans(y))][nrow(y)*0.025])), unlist)),
+    do.call("cbind", lapply(lapply(AGBmeanerror_byreg, function(x) lapply(x, function(y) rowMeans(y)[order(rowMeans(y))][nrow(y)*0.025])), unlist))
+  ),
+  cbind(
+    do.call("cbind", lapply(AGBmoderror, function(x) colMeans(x)[order(colMeans(x))][ncol(x)*0.025])),
+    do.call("cbind", lapply(AGBmeanerror, function(x) colMeans(x)[order(colMeans(x))][ncol(x)*0.025]))))
 
+MSDtab_CIu <- rbind(
+  cbind(
+    do.call("cbind", lapply(lapply(AGBmoderror_byreg, function(x) lapply(x, function(y) rowMeans(y)[order(rowMeans(y))][nrow(y)*0.975])), unlist)),
+    do.call("cbind", lapply(lapply(AGBmeanerror_byreg, function(x) lapply(x, function(y) rowMeans(y)[order(rowMeans(y))][nrow(y)*0.975])), unlist))
+  ),
+  cbind(
+    do.call("cbind", lapply(AGBmoderror, function(x) colMeans(x)[order(colMeans(x))][ncol(x)*0.975])),
+    do.call("cbind", lapply(AGBmeanerror, function(x) colMeans(x)[order(colMeans(x))][ncol(x)*0.975]))))
 
-plotsF <- left_join(plotsF, as.data.frame(plotsF %>% group_by(AreaNum) %>% summarise(WSGareaMu = mean(WSGv))))
-plotsF <- left_join(plotsF, as.data.frame(plotsF %>% group_by(RegionNum) %>% summarise(WSGregMu = mean(WSGv))))
-plotsF <- mutate(plotsF, WSGallMu = mean(WSGv))
+MSDtab_full <- data.frame(NA, nrow = nrow(MSDtab))
+cnames <- vector()
+for(i in 1:ncol(MSDtab)){
+  MSDtab_full <- cbind(MSDtab_full,cbind(MSDtab[,i],MSDtab_CIl[,i],MSDtab_CIu[,i]))
+  #MSDtab_full <- cbind(MSDtab_full, paste(round(MSDtab[,i], 2), " (", round(MSDtab_CIl[,i], 2), " - ", round(MSDtab_CIu[,i], 2), ")", sep=""))
+  cnames <- append(cnames,c(colnames(MSDtab)[i],"CI-l","CI-u"))
+}
+MSDtab_full[,1:2] <- NULL
+colnames(MSDtab_full) <- cnames
+#colnames(MSDtab_full) <- colnames(MSDtab)
+rownames(MSDtab_full) <- c(unique(plotsF$Region[order(plotsF$RegionNum)]),"Overall")
 
-plotsF <- left_join(plotsF, CVout_region$CVoutput$spatialfold[,c("SiteNum","WSGpred")]) ; plotsF <- dplyr::rename(plotsF, c("WSGregEnv" = "WSGpred"))
-plotsF <- left_join(plotsF, CVout_area$CVoutput$spatialfold[,c("SiteNum","WSGpred")]) ; plotsF <- dplyr::rename(plotsF, c("WSGareaEnv" = "WSGpred"))
-plotsF <- left_join(plotsF, CVout_cluster$CVoutput$spatialfold[,c("SiteNum","WSGpred")]) ; plotsF <- dplyr::rename(plotsF, c("WSGclusEnv" = "WSGpred"))
-plotsF <- left_join(plotsF, CVout_loo$CVoutput[,c("SiteNum","WSGpred")]) ; plotsF <- dplyr::rename(plotsF, c("WSGsiteEnv" = "WSGpred"))
-
-plotsF$volha <- ((plotsF$vol * 1000) / plotsF$Size) * 10000     # Volume back to dm^3
-plotsF$AGBind <- (plotsF$volha * plotsF$WSGv) / 1000
-
-plotsF$AGBareaMu <- (plotsF$volha * plotsF$WSGareaMu) / 1000
-plotsF$AGBregMu <- (plotsF$volha * plotsF$WSGregMu) / 1000
-plotsF$AGBallMu <- (plotsF$volha * plotsF$WSGallMu) / 1000
-
-plotsF$AGBregEnv <- (plotsF$volha * plotsF$WSGregEnv) / 1000
-plotsF$AGBareaEnv <- (plotsF$volha * plotsF$WSGareaEnv) / 1000
-plotsF$AGBclusEnv <- (plotsF$volha * plotsF$WSGclusEnv) / 1000
-plotsF$AGBsiteEnv <- (plotsF$volha * plotsF$WSGsiteEnv) / 1000
-
-AGBest <- plotsF[,c("AGBsiteEnv","AGBclusEnv","AGBareaEnv","AGBregEnv","AGBareaMu","AGBregMu","AGBallMu")]
-AGBdev <- apply(AGBest, 2, function(x) x - plotsF$AGBind)
-
-BMcomp <- data.frame("MAD_AGB" = apply(AGBdev, 2, function(x) median(abs(x))),
-                     "MSD_AGB" = apply(AGBdev, 2, function(x) mean(x)),
-                     "mMAD_plot" = apply(AGBdev, 2, function(x) max(tapply(x, plotsF$SiteNum, function(y) median(abs(y))))),
-                     "mMSD_plot" = apply(apply(AGBdev, 2, function(x) range(tapply(x, plotsF$SiteNum, function(y) mean(y)))), 2, function(z) z[which(abs(z) == max(abs(z)))]),
-                     "mMAD_cluster" = apply(AGBdev, 2, function(x) max(tapply(x, plotsF$ClusNum, function(y) median(abs(y))))),
-                     "mMSD_cluster" = apply(apply(AGBdev, 2, function(x) range(tapply(x, plotsF$ClusNum, function(y) mean(y)))), 2, function(z) z[which(abs(z) == max(abs(z)))]),
-                     "mMAD_area" = apply(AGBdev, 2, function(x) max(tapply(x, plotsF$AreaNum, function(y) median(abs(y))))),
-                     "mMSD_area" = apply(apply(AGBdev, 2, function(x) range(tapply(x, plotsF$AreaNum, function(y) mean(y)))), 2, function(z) z[which(abs(z) == max(abs(z)))]),
-                     "mMAD_region" = apply(AGBdev, 2, function(x) max(tapply(x, plotsF$RegionNum, function(y) median(abs(y))))),
-                     "mMSD_region" = apply(apply(AGBdev, 2, function(x) range(tapply(x, plotsF$RegionNum, function(y) mean(y)))), 2, function(z) z[which(abs(z) == max(abs(z)))]))
-row.names(BMcomp) <- c("Site","Cluster","Area","Region","Area mean", "Region mean", "Overall mean")
-
-#write.csv(BMcomp,"Output//WSG//BMcomp.csv")
-
-data.frame("MAD_AGB" = apply(AGBdev, 2, function(x) median(abs(x))),
-           "MSD_AGB" = apply(AGBdev, 2, function(x) mean(x)),
-           "MAD_cluster" = apply(AGBdev, 2, function(x) median(tapply(x, plotsF$ClusNum, function(y) median(abs(y))))),
-           "MSD_cluster" = apply(AGBdev, 2, function(x) mean(tapply(x, plotsF$ClusNum, function(y) mean(y)))),
-           "MAD_area" = apply(AGBdev, 2, function(x) median(tapply(x, plotsF$AreaNum, function(y) median(abs(y))))),
-           "MSD_area" = apply(AGBdev, 2, function(x) mean(tapply(x, plotsF$AreaNum, function(y) mean(y)))),
-           "MAD_region" = apply(AGBdev, 2, function(x) median(tapply(x, plotsF$RegionNum, function(y) median(abs(y))))),
-           "MSD_region" = apply(AGBdev, 2, function(x) mean(tapply(x, plotsF$RegionNum, function(y) mean(y)))))
-
-AGBesttab <- as.data.frame(plotsF %>% group_by(Region) %>% summarise(AGBregion = mean(AGBind)))
-AGBesttab <- left_join(AGBesttab, as.data.frame(plotsF %>% group_by(Region,AreaNum) %>% summarise(AGBarea= mean(AGBind)) %>% group_by(Region) %>% summarise(AGBareaMin = min(AGBarea), AGBareaMax = max(AGBarea))))
-AGBesttab <- left_join(AGBesttab, as.data.frame(plotsF %>% group_by(Region,ClusNum) %>% summarise(AGBcluster= mean(AGBind)) %>% group_by(Region) %>% summarise(AGBclusterMin = min(AGBcluster), AGBclusterMax = max(AGBcluster))))
-AGBesttab <- left_join(AGBesttab, as.data.frame(plotsF %>% group_by(Region,SiteNum) %>% summarise(AGBsite= mean(AGBind)) %>% group_by(Region) %>% summarise(AGBplotMin = min(AGBsite), AGBplotMax = max(AGBsite))))
-
-#write.csv(AGBesttab, "Output//WSG//AGBesttab.csv")
-
-
-WSGest <- plotsF[,c("WSGsiteEnv","WSGclusEnv","WSGareaEnv","WSGregEnv","WSGareaMu","WSGregMu","WSGallMu")]
-WSGdev <- apply(WSGest, 2, function(x) x - plotsF$WSGv)
-
-BMcomp <- data.frame("MAD_WSG" = apply(WSGdev, 2, function(x) median(abs(x))),
-                     "Bias_WSG" = apply(WSGdev, 2, function(x) mean(x)),
-                     "MAD_AGB" = apply(AGBdev, 2, function(x) median(abs(x))),
-                     "Bias_AGB" = apply(AGBdev, 2, function(x) mean(x)),
-                     "MAD_Perc" = apply(AGBdev, 2, function(x) 100 * median(abs(x)) / median(plotsF$AGBind)),
-                     "Bias_Perc" = apply(AGBdev, 2, function(x) 100 * mean(x) / mean(plotsF$AGBind)))
-
-row.names(BMcomp) <- c("Site","Cluster","Area","Region","Area mean", "Region mean", "Overall mean")
+#write.csv(round(MSDtab_full, 2), "Output\\WSG\\MSDtab.csv")
 
 ##############################
 ## Predict plot-average WSG ## 
 ##############################
+WSGdraws <- readRDS("Output\\WSG\\WSGdraws.RDS")
+WSGtreemod <- WSGtreemod <- readRDS("Output\\WSG\\WSGtreemod.RDS")
+plotsF <- plotsF[order(plotsF$SiteNum),]
+
 ## Predict values across dataset
-treesF$WSGpred <- WSGtreemod$mean$WSG.pred
+plotsF$WSGpred <- rowMeans(WSGdraws[,-1])
 treesF$WSGused <- WSGtreemod$mean$WSG.pred
-treesF$WSGused[which(!is.na(treesF$WSG))] <- treesF$WSG[which(!is.na(treesF$WSG))]
+# treesF$WSGused[which(!is.na(treesF$WSG))] <- treesF$WSG[which(!is.na(treesF$WSG))]
 
-## Weigh WSG by volume
-treesF$WSGv <- treesF$WSGused * treesF$VOLw
+# ## Weigh WSG by volume
+# treesF$WSGv <- treesF$WSGused * treesF$VOLw
 
-## This part adds volume-weighted WSG for cored trees only
-treesFm <- filter(treesF, !is.na(WSG))
-treesFm <- left_join(treesFm, treesFm %>% group_by(SiteCode) %>% summarise(totDBHm = sum(DBH_used), totVOLm = sum(vol)))
-treesFm$VOLw <- treesFm$vol / treesFm$totVOLm
-treesFm$WSGvm <- treesFm$WSG * treesFm$VOLw
-treesF <- left_join(treesF, treesFm[,c("SiteCode","TreeN","StemN","totVOLm","WSGvm")])
+plot(treesF$WSG[which(!is.na(treesF$WSG))],treesF$WSGused[which(!is.na(treesF$WSG))])
 
 ## Calculate plot averages
 #plotsF <- treesF %>% group_by(SiteCode) %>% summarise(WSGn = mean(WSG,na.rm=T), WSGp = mean(WSGused), WSGv = sum(WSGv), WSGvm = sum(WSGvm,na.rm=T))
-plotsF <- left_join(plotsF, treesF %>% group_by(SiteCode) %>% summarise(WSGn = mean(WSG,na.rm=T), WSGp = mean(WSGused), WSGv = sum(WSGv), WSGvm = sum(WSGvm,na.rm=T)))
+#plotsF <- left_join(plotsF, treesF %>% group_by(SiteCode) %>% summarise(WSGn = mean(WSG,na.rm=T), WSGp = mean(WSGused), WSGv = sum(WSGv), WSGvm = sum(WSGvm,na.rm=T)))
 
 ## Figures
 temp <- plotsF[-which(plotsF$ncore == 0),]
@@ -842,18 +839,128 @@ cols <- RColorBrewer::brewer.pal(9, "Blues")[ceiling(plotsF$ncore/7) + 1]
 plot((plotsF$WSGv-plotsF$WSGvm) ~ plotsF$ncore, ylab = "Estimated - measured plot average WSGv", xlab = "Number of cores") ; abline(h = 0)
 plot(plotsF$WSGvm~plotsF$WSGv, col = cols, pch=16) ; abline(0,1)
 
+#########################################
+## Raw data overview table and figures ## 
+#########################################
+WSGdraws <- readRDS("Output\\WSG\\WSGdraws.RDS")
+WSGtreemod <- WSGtreemod <- readRDS("Output\\WSG\\WSGtreemod.RDS")
 
+plotsF <- plotsF[order(plotsF$SiteNum),]
+plotsF$WSGpred <- rowMeans(WSGdraws[,-1])
 
-##################################
-## Model output - supplementary ##
-##################################
-## Scatter plot: observed vs. estimated individual WSG
-plot(treesF$WSG[which(!is.na(treesF$WSG))] ~ colMeans(WSGtreemod$sims.list$WSG.pred[,which(!is.na(treesF$WSG))]),
-     xlab = "Measured WSG", ylab = "Estimated WSG")
-abline(0,1)
+treesF$WSGused <- WSGtreemod$mean$WSG.pred
+treesF$WSGused[which(!is.na(treesF$WSG))] <- treesF$WSG[which(!is.na(treesF$WSG))]
 
-## Scatter plot: observed vs. estimated plot WSG
+## This part adds volume-weighted WSG for cored trees only
+treesFm <- filter(treesF, !is.na(WSG))
+treesFm <- left_join(treesFm, treesFm %>% group_by(SiteCode) %>% summarise(totDBHm = sum(DBH_used), totVOLm = sum(vol)))
+treesFm$VOLw <- treesFm$vol / treesFm$totVOLm
+treesFm$WSGvm <- treesFm$WSG * treesFm$VOLw
+treesF <- left_join(treesF, treesFm[,c("SiteCode","TreeN","StemN","totVOLm","WSGvm")])
+plotsF <- left_join(plotsF, treesF %>% group_by(SiteCode) %>% summarise(WSGm = mean(WSG, na.rm=T), WSGvm = sum(WSGvm, na.rm = T)))
 
+## Summary table
+datatab <- rbind(
+           as.data.frame(plotsF %>% group_by(Region, AreaNum) %>% summarise(Lat = mean(lat), Long = mean(long), Plots = n(),
+                         Volume = mean(volha), WSG = mean(WSGm, na.rm = T), WSGv = mean(WSGvm),
+                         ntrees = sum(ntree), cores = sum(ncore)/sum(ntree), Quercus = sum(nQuercus)/sum(ntree), Species = sum(nSpec)/sum(ntree),
+                         Elevation = mean(ALOSelev), elevmin = min(ALOSelev), elevmax = max(ALOSelev),
+                         Precipitation = mean(TotPrec), precmin = min(TotPrec), precmax = max(TotPrec),
+                         Tempvar = mean(TempVar), tempvarmin = min(TempVar), tempvarmax = max(TempVar),
+                         Precvar = mean(PrecVar), precvarmin = min(PrecVar), precvarmax = max(PrecVar))),
+           as.data.frame(plotsF %>% group_by(Region) %>% summarise(AreaNum = NA, Lat = mean(lat), Long = mean(long), Plots = n(),
+                         Volume = mean(volha), WSG = mean(WSGm, na.rm = T), WSGv = mean(WSGvm),
+                         ntrees = sum(ntree), cores = sum(ncore)/sum(ntree), Quercus = sum(nQuercus)/sum(ntree), Species = sum(nSpec)/sum(ntree),
+                         Elevation = mean(ALOSelev), elevmin = min(ALOSelev), elevmax = max(ALOSelev),
+                         Precipitation = mean(TotPrec), precmin = min(TotPrec), precmax = max(TotPrec),
+                         Tempvar = mean(TempVar), tempvarmin = min(TempVar), tempvarmax = max(TempVar),
+                         Precvar = mean(PrecVar), precvarmin = min(PrecVar), precvarmax = max(PrecVar))))
+datatab <- datatab[order(datatab$Region, datatab$AreaNum, na.last = FALSE),]
+datatab[,-c(1,2)] <- round(datatab[,-c(1,2)],2)
+datatab[,-c(1:12)] <- round(datatab[,-c(1:12)])
+datatab$Elevation <- paste(datatab$Elevation, " (", datatab$elevmin, " - ", datatab$elevmax, ")",sep="")
+datatab$Precipitation <- paste(datatab$Precipitation, " (", datatab$precmin, " - ", datatab$precmax, ")",sep="")
+datatab$Tempvar <- paste(datatab$Tempvar, " (", datatab$tempvarmin, " - ", datatab$tempvarmax, ")",sep="")
+datatab$Precvar <- paste(datatab$Precvar, " (", datatab$precvarmin, " - ", datatab$precvarmax, ")",sep="")
+datatab[,c("elevmin","elevmax","precmin","precmax","tempvarmin","tempvarmax","precvarmin","precvarmax")] <- NULL
+
+#write.csv(datatab, "Output\\WSG\\datatab.csv", row.names = F)
+
+## Histograms and CVs of WSG - noID, ID, Quercus
+treesQuercus <- dplyr::filter(treesF, Species == "Quercus Humboldtii")
+treesID <- dplyr::filter(treesF, !Species %in% c("Quercus Humboldtii","nospec"))
+treesNOID <- dplyr::filter(treesF, Species == "nospec")
+
+tiff(file = "Output\\WSG\\WSGdistribution.tiff", width = 10000, height = 5000, res = 900)
+
+layout(matrix(c(1,2,3,3), 2, 2, byrow = TRUE), widths = c(0.5,0.5), height = c(0.8, 1.2))
+par(mar = c(4, 4, 0.5, 0.5))
+  hist(treesNOID$WSG, xlab = "WSG", main = NA, xlim = c(0.1, 1.4))
+    legend("topright", legend = c(paste("Unidentified trees (n = ", length(which(!is.na(treesNOID$WSG))), ")", sep = ""), 
+                                 paste("Coefficient of variation: ", round(sd(treesNOID$WSG, na.rm=T)/mean(treesNOID$WSG, na.rm=T), 2), sep = "")),
+           ncol = 1, bty = "n")
+    abline(v = mean(treesNOID$WSG, na.rm = T), col = "red")
+  hist(treesQuercus$WSG, xlab = "WSG", main = NA, xlim = c(0.1, 1.4))
+    legend("topright", legend = c(paste("Quercus Humboldtii (n = ", length(which(!is.na(treesQuercus$WSG))), ")", sep = ""), 
+                                  paste("Coefficient of variation: ", round(sd(treesQuercus$WSG, na.rm=T)/mean(treesQuercus$WSG, na.rm=T), 2), sep = "")),
+           ncol = 1, bty = "n")
+    abline(v = mean(treesQuercus$WSG, na.rm = T), col = "red")
+  boxplot(WSG ~ Species, treesID, xlab = "Identifier", xaxt = "n")
+    legend("topleft", legend = c(paste("Trees with plot-specific identifier (n = ", length(which(!is.na(treesID$WSG))), ")", sep = ""), 
+                                  paste("Coefficient of variation: ", round(mean(data.frame(treesID %>% group_by(Species) %>% summarise(CV = sd(WSG, na.rm = T) / mean(WSG, na.rm = T)))$CV), 2), sep = "")),
+           ncol = 1, bty = "n")
+
+dev.off()
+
+## Tree size
+treesF$DBH2 <- ifelse(treesF$DBH > 50, 50, treesF$DBH)
+treesF$DBHwsg <- ifelse(is.na(treesF$WSG), NA, treesF$DBH2)
+
+ggplot(treesF)+
+  theme_classic()+
+  scale_x_continuous(breaks = seq(5, 50, 5), expand = c(0,0), 
+                     labels = c("5-10","10-15","15-20","20-25","25-30","30-35","35-40","40-45","45-50","50+"))+
+  scale_y_continuous(breaks = scales::pretty_breaks(n = 10), expand = c(0,0))+
+  geom_histogram(aes(x = DBH2), fill = "darkgreen", binwidth = 5)+
+  geom_histogram(aes(x = DBHwsg), fill = "darkorange", binwidth = 5)+
+  labs(x = "DBH range", y = "Count")
+
+ggsave("Output\\WSG\\tree_size_WSG.tiff", width = 11, height = 10, units = "cm")
+
+## Observed vs. estimates WSG figure
+temp <- plotsF[-which(plotsF$ncore == 0),]
+cols <- RColorBrewer::brewer.pal(9, "Greens")[ceiling(plotsF$ncore/7) + 1]
+
+tiff(file = "Output\\WSG\\WSG_scatterplots.tiff", width = 10000, height = 5000, res = 900)
+
+layout(matrix(c(1,2), 1, 2, byrow = TRUE), widths = c(0.5,0.5))
+par(mar = c(4, 4, 0.5, 0.5))
+    ## Scatter plot: observed vs. estimated individual WSG
+    plot(colMeans(WSGtreemod$sims.list$WSG.pred[,which(!is.na(treesF$WSG))]) ~ treesF$WSG[which(!is.na(treesF$WSG))],
+         xlab = "Measured WSG", ylab = "Estimated WSG")
+    abline(0,1)
+    legend("topright", bty = "n",
+           paste("Pearson's r =", round(cor(treesF$WSG[which(!is.na(treesF$WSG))], colMeans(WSGtreemod$sims.list$WSG.pred[,which(!is.na(treesF$WSG))])), 2)))
+    ## Scatter plot: observed vs. estimated plot WSGv
+    plot(plotsF$WSGpred ~ plotsF$WSGvm, col = cols, pch=16,
+         xlab = "Measured WSGv (average of cores)", ylab = "Estimated WSGv",
+         xlim = c(min(plotsF$WSGpred, plotsF$WSGvm),max(plotsF$WSGpred, plotsF$WSGvm)), ylim = c(min(plotsF$WSGpred, plotsF$WSGvm),max(plotsF$WSGpred, plotsF$WSGvm)))
+    abline(0,1)
+    legend("bottomright", legend = lapply(split(plotsF$ncore,ceiling(plotsF$ncore/7)+1),min), pch=16, pt.cex=1.5, cex=1, bty='n',
+           col = unique(cols)[order(unique(ceiling(plotsF$ncore/7) + 1))], title = "Number of cores", title.adj = -0.005)
+    legend("topleft", bty = "n",
+           paste("Pearson's r =", round(cor(plotsF$WSGpred, plotsF$WSGvm), 2)))
+
+dev.off()
+
+## WSG vs. size (trees and plots) NOT FINISHED
+plot(WSGtreemod$mean$WSG.pred[which(!is.na(treesF$WSG))] ~ treesF$vol[which(!is.na(treesF$WSG))])
+abline(WSGtreemod$q50$alpha,WSGtreemod$q50$b_vol)
+abline(WSGtreemod$q2.5$alpha,WSGtreemod$q2.5$b_vol)
+abline(WSGtreemod$q97.5$alpha,WSGtreemod$q97.5$b_vol)
+
+plot(rowMeans(WSGdraws[,-1]) ~ plotsF$vol)
+abline(lm(rowMeans(WSGdraws[,-1]) ~ plotsF$volha))
 
 ##################
 ## R-hat checks ##

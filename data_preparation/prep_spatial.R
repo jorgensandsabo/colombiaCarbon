@@ -194,15 +194,15 @@ spatialdata <- cbind(spatialdata, tpi300c)
 ###########################
 ###### SOIL DATA  ######### Currently only dominant soil type ("soildata" not in use)
 ###########################
-soildata <- read.csv("GIS\\SoilDatabase1_21\\HWSD_DATA.csv", stringsAsFactors = F)
-
-soiltype <- read.csv("GIS\\SoilDatabase1_21\\HWSD_SMU.csv", stringsAsFactors = F)
-soilraster <- raster::raster("GIS\\SoilDatabase1_21\\hwsd.tif")
-MU_GLOBAL <- raster::extract(soilraster, sp::spTransform(plotcoords, raster::projection(soilraster)))
-spatialdata <- cbind(spatialdata, MU_GLOBAL)
-spatialdata <- dplyr::left_join(spatialdata,soiltype[,c("MU_GLOBAL","SU_SYMBOL")])
-spatialdata$MU_GLOBAL <- NULL
-names(spatialdata)[which(names(spatialdata) == "SU_SYMBOL")] <- "SoilType"
+# soildata <- read.csv("GIS\\SoilDatabase1_21\\HWSD_DATA.csv", stringsAsFactors = F)
+# 
+# soiltype <- read.csv("GIS\\SoilDatabase1_21\\HWSD_SMU.csv", stringsAsFactors = F)
+# soilraster <- raster::raster("GIS\\SoilDatabase1_21\\hwsd.tif")
+# MU_GLOBAL <- raster::extract(soilraster, sp::spTransform(plotcoords, raster::projection(soilraster)))
+# spatialdata <- cbind(spatialdata, MU_GLOBAL)
+# spatialdata <- dplyr::left_join(spatialdata,soiltype[,c("MU_GLOBAL","SU_SYMBOL")])
+# spatialdata$MU_GLOBAL <- NULL
+# names(spatialdata)[which(names(spatialdata) == "SU_SYMBOL")] <- "SoilType"
 
 ################
 #### SAVE ######
