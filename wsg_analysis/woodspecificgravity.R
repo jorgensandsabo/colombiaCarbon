@@ -115,7 +115,6 @@ regcol <- c("red","green","blue","yellow","grey","black","white")
 regcol <- c("#267234","#656150","#b5b09e","#84a955","#84a955","#6f5a67","#44437e")
 regcol <- c("#189a39","#55928f","#b5b09e","#84a955","#decd60","#6f5a67","#44437e")
 
-
 ### Plot dataset
 plotsF <- treesF %>% group_by(SiteCode) %>% summarise(SiteNum = first(SiteNum), ClusNum = first(ClusNum), AreaNum = first(AreaNum), RegionNum = first(RegionNum),
                                                       ntree = n(), ncore = sum(WSG/WSG,na.rm=T), vol = sum(vol), Region = first(Region),
@@ -742,12 +741,12 @@ rownames(AGBtab) <- c(unique(plotsF$Region)[order(unique(plotsF$RegionNum))], "O
 
 #write.csv(round(AGBtab,2) ,"Output\\WSG\\AGBtab.csv")
 
-#############################
-## Error/bias in AGB table ##
-#############################
+#######################
+## Error/bias in AGB ##
+#######################
 plotsF <- plotsF[order(plotsF$SiteNum),]
-#WSGdraws <- readRDS("Output\\WSG\\WSGdraws.RDS")
-#kfolds <- readRDS("Output\\WSG\\kfolds.RDS")
+WSGdraws <- readRDS("Output\\WSG\\WSGdraws.RDS")
+kfolds <- readRDS("Output\\WSG\\kfolds.RDS")
 
 # Extract relative errors from k-fold CV of plot models
 WSGmoderror <- lapply(lapply(kfolds, function(x)x$spatialfold), function(z)  z$prederror[,order(z$sitenum)])
@@ -755,63 +754,212 @@ AGBmoderror <- lapply(WSGmoderror, function(x) apply(x, 1, function(y) y * plots
 AGBmoderror <- lapply(AGBmoderror, function(x) as.data.frame(x))
 
 # Calculate errors from using spatial average
+WSGdraws_cluster <- do.call(cbind, lapply(lapply(split(WSGdraws[-1], plotsF$ClusNum), function(x) do.call("rbind",x)), rowMeans))
+WSGdraws_area <- do.call(cbind, lapply(lapply(split(WSGdraws[-1], plotsF$AreaNum), function(x) do.call("rbind",x)), rowMeans))
+WSGdraws_region <- do.call(cbind, lapply(lapply(split(WSGdraws[-1], plotsF$RegionNum), function(x) do.call("rbind",x)), rowMeans))
+
 AGBdraws_plot <- WSGdraws[,-1] * plotsF$volha
-AGBdraws_cluster <- lapply(split(AGBdraws_plot, plotsF$ClusNum), function(x) do.call("rbind",x))
-AGBdraws_area <- lapply(split(AGBdraws_plot, plotsF$AreaNum), function(x) do.call("rbind",x))
-AGBdraws_region <- lapply(split(AGBdraws_plot, plotsF$RegionNum), function(x) do.call("rbind",x))
+AGBdraws_cluster <- t(rbind(WSGdraws_cluster[,plotsF$ClusNum])) * plotsF$volha
+AGBdraws_area <- t(rbind(WSGdraws_area[,plotsF$AreaNum])) * plotsF$volha
+AGBdraws_region <- t(rbind(WSGdraws_region[,plotsF$RegionNum])) * plotsF$volha
+AGBdraws_overall <- t(matrix(rep(colMeans(WSGdraws[,-1]),341), nrow = 4000)) * plotsF$volha
 
 AGBmeanerror <- list()
-#AGBmeanerror$cluster <- t(do.call("cbind", lapply(AGBdraws_cluster, function(x) rowMeans(x) - x)))[order(plotsF$ClusNum)]      # PLOT-WISE DIFFERENCE FROM CLUSTER MEAN
-AGBmeanerror$area <- t(do.call("cbind", lapply(AGBdraws_area, function(x) rowMeans(x) - x)))[order(plotsF$AreaNum),]          # PLOT-WISE DIFFERENCE FROM AREA MEAN
-AGBmeanerror$region <- t(do.call("cbind", lapply(AGBdraws_region, function(x) rowMeans(x) - x)))[order(plotsF$RegionNum),]      # PLOT-WISE DIFFERENCE FROM REGION MEAN
-AGBmeanerror$overall <- apply(AGBdraws_plot, 2, function(x) mean(x) - x)                               # PLOT-WISE DIFFERENCE FROM OVERALL MEAN
-AGBmeanerror <- lapply(AGBmeanerror, as.data.frame)
+AGBmeanerror$cluster <- AGBdraws_cluster - AGBdraws_plot
+AGBmeanerror$area <- AGBdraws_area - AGBdraws_plot
+AGBmeanerror$region <- AGBdraws_region - AGBdraws_plot
+AGBmeanerror$overall <- AGBdraws_overall - AGBdraws_plot
 
-# Table
+error_mean <- data.frame(cluster = rep(plotsF$Cluster, length(AGBmeanerror)),
+                         area = rep(plotsF$AreaNum, length(AGBmeanerror)),
+                         region = rep(plotsF$Region, length(AGBmeanerror)),
+                         spatscale = rep(names(AGBmeanerror), each = nrow(AGBmeanerror[[1]])), 
+                         MSD = do.call(rbind, lapply(AGBmeanerror, function(x) cbind(rowMeans(x)))))
+error_mean$spatscale <- factor(error_mean$spatscale, levels = c("cluster","area","region","overall"))
+error_mean$region <- factor(error_mean$region, levels = unique(treesF[order(treesF$RegionNum),]$Region))
+
+## Proportion errors from using average
+AGBproperror <- list()
+AGBproperror$cluster <- (AGBdraws_cluster - AGBdraws_plot) / AGBdraws_plot
+AGBproperror$area <- (AGBdraws_area - AGBdraws_plot) / AGBdraws_plot
+AGBproperror$region <- (AGBdraws_region - AGBdraws_plot) / AGBdraws_plot
+AGBproperror$overall <- (AGBdraws_overall - AGBdraws_plot) / AGBdraws_plot
+
+error_prop <- data.frame(cluster = rep(plotsF$Cluster, length(AGBproperror)),
+                         area = rep(plotsF$AreaNum, length(AGBproperror)),
+                         region = rep(plotsF$Region, length(AGBproperror)),
+                         spatscale = rep(names(AGBproperror), each = nrow(AGBproperror[[1]])), 
+                         MSD = do.call(rbind, lapply(AGBproperror, function(x) cbind(rowMeans(x)))))
+error_prop$spatscale <- factor(error_prop$spatscale, levels = c("cluster","area","region","overall"))
+error_prop$region <- factor(error_prop$region, levels = unique(treesF[order(treesF$RegionNum),]$Region))
+
+## Errors from non-spatial model
+error_mod <- data.frame(cluster = rep(plotsF$Cluster, length(AGBmoderror)),
+                        area = rep(plotsF$AreaNum, length(AGBmoderror)),
+                        region = rep(plotsF$Region, length(AGBmoderror)),
+                        spatscale = rep(names(AGBmoderror), each = nrow(AGBmoderror[[1]])), 
+                        MSD = do.call(rbind, lapply(AGBmoderror, function(x) cbind(rowMeans(x)))))
+error_mod$spatscale <- factor(error_mod$spatscale, levels = c("plot","cluster","area","region"))
+error_mod$region <- factor(error_mod$region, levels = unique(treesF[order(treesF$RegionNum),]$Region))
+
+## Proportional errors from non-spatial model
+AGBmodprop <- list()
+AGBmodprop$plot <- AGBmoderror$plot[,1:4000] / AGBdraws_plot
+AGBmodprop$cluster <- AGBmoderror$cluster[1:4000] / AGBdraws_plot
+AGBmodprop$area <- AGBmoderror$area[1:4000] / AGBdraws_plot
+AGBmodprop$region <- AGBmoderror$region[1:4000] / AGBdraws_plot
+
+error_modprop <- data.frame(cluster = rep(plotsF$Cluster, length(AGBmodprop)),
+                            area = rep(plotsF$AreaNum, length(AGBmodprop)),
+                            region = rep(plotsF$Region, length(AGBmodprop)),
+                            spatscale = rep(names(AGBmodprop), each = nrow(AGBmodprop[[1]])), 
+                            MSD = do.call(rbind, lapply(AGBmodprop, function(x) cbind(rowMeans(x)))))
+error_modprop$spatscale <- factor(error_modprop$spatscale, levels = c("plot","cluster","area","region"))
+error_modprop$region <- factor(error_modprop$region, levels = unique(treesF[order(treesF$RegionNum),]$Region))
+
+## Plot
+tiff(file = "Output\\WSG\\test.tiff", width = 6000, height = 5000, res = 900)
+
+  layout(matrix(c(1,3,5,2,4,5), 2, 3, byrow = T), widths = c(1, 3.6/4.4, 0.4))
+  par(mar = c(0.4,4,1.5,0.4), oma = c(0,2,2,0))
+  # Plot AGB error
+  plot(x = NA, y = NA, xlim = c(0.6,4.4), ylim = c(-75,75), xlab = NA, ylab = NA, xaxt = 'n', yaxt = 'n', fg = 'gray60')
+  title(main = "Spatial average", cex.main = 1.3, line = 0.6, font.main = 1)
+  title(ylab = "Biomass error (t/ha)", line = 2.5)
+  violinplot::violinplot(error_mean$MSD ~ error_mean$spatscale, boxplot.args = NULL, col = 'lightgray', border = 'lightgray',
+                         grid.args = list(col="white"), density.args = list(n = 1000), width = 0.9, 
+                         xlab = NA, ylab = NA, group.labels = FALSE, add = T, density.ticks = F)
+  abline(h = 0)
+  axis(2, at = c(-75,-50,-25,0,25,50,75))
+  segments(y0 = as.data.frame(error_mean %>% group_by(spatscale, region) %>% summarise(MSD = mean(MSD)))$MSD,
+           x0 = as.numeric(as.factor(as.data.frame(error_mean %>% group_by(spatscale, region) %>% summarise(MSD = mean(MSD)))$spatscale)) - 0.2,
+           x1 = as.numeric(as.factor(as.data.frame(error_mean %>% group_by(spatscale, region) %>% summarise(MSD = mean(MSD)))$spatscale)) + 0.2,
+           col = regcol[as.numeric(as.data.frame(error_mean %>% group_by(spatscale, region) %>% summarise(region = first(region)))$region)], 
+           lwd = 3)
+  points(as.data.frame(error_mean %>% group_by(spatscale, area) %>% summarise(MSD = mean(MSD)))$MSD ~ as.factor(as.data.frame(error_mean %>% group_by(spatscale, area) %>% summarise(MSD = mean(MSD)))$spatscale),
+         col = regcol[as.numeric(as.data.frame(error_mean %>% group_by(spatscale, area) %>% summarise(region = first(region)))$region)],
+         pch = 16)
+
+  # Plot proportional error
+  par(mar = c(1.5,4,0.4,0.4))
+  plot(x = NA, y = NA, xlim = c(0.6,4.4), ylim = c(0,0.35), xlab = NA, ylab = NA, xaxt = 'n', yaxt = 'n', fg = 'gray60')
+  violinplot::violinplot(abs(error_prop$MSD) ~ error_prop$spatscale, boxplot.args = NULL, col = "lightgray", border = "lightgray",
+                         grid.args = list(col="white"), density.args = list(n = 1000), width = 0.9, 
+                         xlab = NA, ylab = NA, add = T, density.ticks = F, text.cex = 0.7)
+  abline(h = 0)
+  title(ylab = "Absolute biomass error (%)", line = 2.5)
+  axis(2, at = c(0,0.1,0.2,0.3))
+  segments(y0 = as.data.frame(error_prop %>% group_by(spatscale, region) %>% summarise(MSD = abs(mean(MSD))))$MSD,
+           x0 = as.numeric(as.factor(as.data.frame(error_prop %>% group_by(spatscale, region) %>% summarise(MSD = mean(MSD)))$spatscale)) - 0.2,
+           x1 = as.numeric(as.factor(as.data.frame(error_prop %>% group_by(spatscale, region) %>% summarise(MSD = mean(MSD)))$spatscale)) + 0.2,
+           col = regcol[as.numeric(as.data.frame(error_prop %>% group_by(spatscale, region) %>% summarise(region = first(region)))$region)], 
+           lwd = 3)
+  points(as.data.frame(error_prop %>% group_by(spatscale, area) %>% summarise(MSD = abs(mean(MSD))))$MSD ~ as.factor(as.data.frame(error_prop %>% group_by(spatscale, area) %>% summarise(MSD = mean(MSD)))$spatscale),
+         col = regcol[as.numeric(as.data.frame(error_prop %>% group_by(spatscale, area) %>% summarise(region = first(region)))$region)],
+         pch = 16)
+  
+  # Model AGB error
+  par(mar = c(0.4,0.4,1.5,0.4))
+  plot(x = NA, y = NA, xlim = c(0.6,4.4), ylim = c(-75,75), xlab = NA, ylab = NA, xaxt = 'n', yaxt = 'n', fg = 'gray60')
+  title(main = "Environmental model", cex.main = 1.3, line = 0.6, font.main = 1)
+  violinplot::violinplot(error_mod$MSD ~ error_mod$spatscale, boxplot.args = NULL, col = "lightgray", border = "lightgray",
+                         grid.args = list(col="white"), density.args = list(n = 1000), width = 0.9, 
+                         xlab = NA, ylab = NA, group.labels = FALSE, add = T, density.ticks = F)
+  abline(h = 0)
+  segments(y0 = as.data.frame(error_mod %>% group_by(spatscale, region) %>% summarise(MSD = mean(MSD)))$MSD,
+           x0 = as.numeric(as.factor(as.data.frame(error_mod %>% group_by(spatscale, region) %>% summarise(MSD = mean(MSD)))$spatscale)) - 0.2,
+           x1 = as.numeric(as.factor(as.data.frame(error_mod %>% group_by(spatscale, region) %>% summarise(MSD = mean(MSD)))$spatscale)) + 0.2,
+           col = regcol[as.numeric(as.data.frame(error_mod %>% group_by(spatscale, region) %>% summarise(region = first(region)))$region)], 
+           lwd = 3)
+  points(as.data.frame(error_mod %>% group_by(spatscale, area) %>% summarise(MSD = mean(MSD)))$MSD ~ as.factor(as.data.frame(error_mod %>% group_by(spatscale, area) %>% summarise(MSD = mean(MSD)))$spatscale),
+         col = regcol[as.numeric(as.data.frame(error_mod %>% group_by(spatscale, area) %>% summarise(region = first(region)))$region)],
+         pch = 16)
+  
+  # Model AGB proportional error
+  par(mar = c(1.5,0.4,0.4,0.4))
+  plot(x = NA, y = NA, xlim = c(0.6,4.4), ylim = c(0,0.35), xlab = NA, ylab = NA, xaxt = 'n', yaxt = 'n', fg = 'gray60')
+  violinplot::violinplot(abs(error_modprop$MSD) ~ error_modprop$spatscale, boxplot.args = NULL, col = "lightgray", border = "lightgray",
+                         grid.args = list(col="white"), density.args = list(n = 1000), width = 0.9, 
+                         xlab = NA, ylab = NA, add = T, density.ticks = F, text.cex = 0.7)
+  abline(h = 0)
+  segments(y0 = as.data.frame(error_modprop %>% group_by(spatscale, region) %>% summarise(MSD = abs(mean(MSD))))$MSD,
+           x0 = as.numeric(as.factor(as.data.frame(error_modprop %>% group_by(spatscale, region) %>% summarise(MSD = mean(MSD)))$spatscale)) - 0.2,
+           x1 = as.numeric(as.factor(as.data.frame(error_modprop %>% group_by(spatscale, region) %>% summarise(MSD = mean(MSD)))$spatscale)) + 0.2,
+           col = regcol[as.numeric(as.data.frame(error_modprop %>% group_by(spatscale, region) %>% summarise(region = first(region)))$region)], 
+           lwd = 3)
+  points(as.data.frame(error_modprop %>% group_by(spatscale, area) %>% summarise(MSD = abs(mean(MSD))))$MSD ~ as.factor(as.data.frame(error_modprop %>% group_by(spatscale, area) %>% summarise(MSD = mean(MSD)))$spatscale),
+         col = regcol[as.numeric(as.data.frame(error_modprop %>% group_by(spatscale, area) %>% summarise(region = first(region)))$region)],
+         pch = 16)
+  
+  # Legend
+  par(mar = c(0,0,0,0))
+  plot(NULL ,xaxt='n',yaxt='n',bty='n',ylab='',xlab='', xlim=0:1, ylim=0:1)
+  legend("center", legend =  unique(treesF[order(treesF$RegionNum),]$Region), pch=16, pt.cex=1.5, cex=1, bty='n',
+         col = regcol, title = "Region", title.adj = -0.005)
+
+dev.off()
+
+#### Table average values
 AGBmoderror_byreg <- lapply(AGBmoderror, function(x) lapply(split(x, plotsF$RegionNum), function(y) do.call("rbind",y)))
-AGBmeanerror_byreg <- lapply(AGBmeanerror, function(x) lapply(split(x, plotsF$RegionNum), function(y) do.call("rbind",y)))
+AGBmoderror_byarea <- lapply(AGBmoderror, function(x) lapply(split(x, plotsF$AreaNum), function(y) do.call("rbind",y)))
+AGBmodprop_byreg <- lapply(AGBmodprop, function(x) lapply(split(x, plotsF$RegionNum), function(y) do.call("rbind", y)))
+AGBmodprop_byarea <- lapply(AGBmodprop, function(x) lapply(split(x, plotsF$AreaNum), function(y) do.call("rbind", y)))
 
-MSDtab <- rbind(
-  cbind(
+MSDtab_model <- cbind(
+  rbind(
     do.call("cbind", lapply(lapply(AGBmoderror_byreg, function(x) lapply(x, function(y) mean(rowMeans(y)))), unlist)),
-    do.call("cbind", lapply(lapply(AGBmeanerror_byreg, function(x) lapply(x, function(y) mean(rowMeans(y)))), unlist))
+    do.call("cbind", lapply(lapply(AGBmoderror_byarea, function(x) lapply(x, function(y) mean(rowMeans(y)))), unlist))
   ),
-  cbind(
-    do.call("cbind", lapply(AGBmoderror, function(x) mean(as.matrix(x)))),
-    do.call("cbind", lapply(AGBmeanerror, function(x) mean(as.matrix(x))))))
-
-MSDtab_CIl <- rbind(
-  cbind(
+  rbind(
+    do.call("cbind", lapply(lapply(AGBmodprop_byreg, function(x) lapply(x, function(y) mean(rowMeans(y))*100)), unlist)),
+    do.call("cbind", lapply(lapply(AGBmodprop_byarea, function(x) lapply(x, function(y) mean(rowMeans(y))*100)), unlist))
+  ),
+  rbind(
     do.call("cbind", lapply(lapply(AGBmoderror_byreg, function(x) lapply(x, function(y) rowMeans(y)[order(rowMeans(y))][nrow(y)*0.025])), unlist)),
-    do.call("cbind", lapply(lapply(AGBmeanerror_byreg, function(x) lapply(x, function(y) rowMeans(y)[order(rowMeans(y))][nrow(y)*0.025])), unlist))
+    do.call("cbind", lapply(lapply(AGBmoderror_byarea, function(x) lapply(x, function(y) rowMeans(y)[order(rowMeans(y))][nrow(y)*0.025])), unlist))
   ),
-  cbind(
-    do.call("cbind", lapply(AGBmoderror, function(x) colMeans(x)[order(colMeans(x))][ncol(x)*0.025])),
-    do.call("cbind", lapply(AGBmeanerror, function(x) colMeans(x)[order(colMeans(x))][ncol(x)*0.025]))))
-
-MSDtab_CIu <- rbind(
-  cbind(
+  rbind(
     do.call("cbind", lapply(lapply(AGBmoderror_byreg, function(x) lapply(x, function(y) rowMeans(y)[order(rowMeans(y))][nrow(y)*0.975])), unlist)),
-    do.call("cbind", lapply(lapply(AGBmeanerror_byreg, function(x) lapply(x, function(y) rowMeans(y)[order(rowMeans(y))][nrow(y)*0.975])), unlist))
+    do.call("cbind", lapply(lapply(AGBmoderror_byarea, function(x) lapply(x, function(y) rowMeans(y)[order(rowMeans(y))][nrow(y)*0.975])), unlist))
+
+  ))
+
+MSDtab_model <- MSDtab_model[,c(5,1,9,13,6,2,10,14,7,3,11,15,8,4,12,16)]
+rownames(MSDtab_model) <- c(unique(plotsF$Region[order(plotsF$RegionNum)]), paste(as.data.frame(plotsF %>% group_by(AreaNum) %>% summarise(reg = first(Region)))$reg, unique(plotsF$AreaNum[order(plotsF$AreaNum)])))
+MSDtab_model <- MSDtab_model[order(row.names(MSDtab_model)),]
+
+write.csv(round(MSDtab_model, 2), "Output\\WSG\\MSDtab_model.csv")
+
+#### Table model values
+AGBmeanerror_byreg <- lapply(AGBmeanerror, function(x) lapply(split(x, plotsF$RegionNum), function(y) do.call("rbind",y)))
+AGBmeanerror_byarea <- lapply(AGBmeanerror, function(x) lapply(split(x, plotsF$AreaNum), function(y) do.call("rbind",y)))
+AGBproperror_byreg <- lapply(AGBproperror, function(x) lapply(split(x, plotsF$RegionNum), function(y) do.call("rbind", y)))
+AGBproperror_byarea <- lapply(AGBproperror, function(x) lapply(split(x, plotsF$AreaNum), function(y) do.call("rbind", y)))
+
+MSDtab <- cbind(
+  rbind(
+    do.call("cbind", lapply(lapply(AGBmeanerror_byreg, function(x) lapply(x, function(y) mean(rowMeans(y)))), unlist)),
+    do.call("cbind", lapply(lapply(AGBmeanerror_byarea, function(x) lapply(x, function(y) mean(rowMeans(y)))), unlist))
   ),
-  cbind(
-    do.call("cbind", lapply(AGBmoderror, function(x) colMeans(x)[order(colMeans(x))][ncol(x)*0.975])),
-    do.call("cbind", lapply(AGBmeanerror, function(x) colMeans(x)[order(colMeans(x))][ncol(x)*0.975]))))
+  rbind(
+    do.call("cbind", lapply(lapply(AGBproperror_byreg, function(x) lapply(x, function(y) mean(rowMeans(y))*100)), unlist)),
+    do.call("cbind", lapply(lapply(AGBproperror_byarea, function(x) lapply(x, function(y) mean(rowMeans(y))*100)), unlist))
+  ),
+  rbind(
+    do.call("cbind", lapply(lapply(AGBmeanerror_byreg, function(x) lapply(x, function(y) rowMeans(y)[order(rowMeans(y))][nrow(y)*0.025])), unlist)),
+    do.call("cbind", lapply(lapply(AGBmeanerror_byarea, function(x) lapply(x, function(y) rowMeans(y)[order(rowMeans(y))][nrow(y)*0.025])), unlist))
+  ),
+  rbind(
+    do.call("cbind", lapply(lapply(AGBmeanerror_byreg, function(x) lapply(x, function(y) rowMeans(y)[order(rowMeans(y))][nrow(y)*0.975])), unlist)),
+    do.call("cbind", lapply(lapply(AGBmeanerror_byarea, function(x) lapply(x, function(y) rowMeans(y)[order(rowMeans(y))][nrow(y)*0.975])), unlist))
+    
+  ))
 
-MSDtab_full <- data.frame(NA, nrow = nrow(MSDtab))
-cnames <- vector()
-for(i in 1:ncol(MSDtab)){
-  MSDtab_full <- cbind(MSDtab_full,cbind(MSDtab[,i],MSDtab_CIl[,i],MSDtab_CIu[,i]))
-  #MSDtab_full <- cbind(MSDtab_full, paste(round(MSDtab[,i], 2), " (", round(MSDtab_CIl[,i], 2), " - ", round(MSDtab_CIu[,i], 2), ")", sep=""))
-  cnames <- append(cnames,c(colnames(MSDtab)[i],"CI-l","CI-u"))
-}
-MSDtab_full[,1:2] <- NULL
-colnames(MSDtab_full) <- cnames
-#colnames(MSDtab_full) <- colnames(MSDtab)
-rownames(MSDtab_full) <- c(unique(plotsF$Region[order(plotsF$RegionNum)]),"Overall")
+MSDtab <- MSDtab[,c(5,1,9,13,6,2,10,14,7,3,11,15,8,4,12,16)]
+rownames(MSDtab) <- c(unique(plotsF$Region[order(plotsF$RegionNum)]), paste(as.data.frame(plotsF %>% group_by(AreaNum) %>% summarise(reg = first(Region)))$reg, unique(plotsF$AreaNum[order(plotsF$AreaNum)])))
+MSDtab <- MSDtab[order(row.names(MSDtab)),]
 
-#write.csv(round(MSDtab_full, 2), "Output\\WSG\\MSDtab.csv")
-
+write.csv(round(MSDtab, 2), "Output\\WSG\\MSDtab.csv")
 ##############################
 ## Predict plot-average WSG ## 
 ##############################
@@ -886,7 +1034,9 @@ datatab[,c("elevmin","elevmax","precmin","precmax","tempvarmin","tempvarmax","pr
 
 #write.csv(datatab, "Output\\WSG\\datatab.csv", row.names = F)
 
-## Histograms and CVs of WSG - noID, ID, Quercus
+###################################################
+## Histograms and CVs of WSG - noID, ID, Quercus ## 
+###################################################
 treesQuercus <- dplyr::filter(treesF, Species == "Quercus Humboldtii")
 treesID <- dplyr::filter(treesF, !Species %in% c("Quercus Humboldtii","nospec"))
 treesNOID <- dplyr::filter(treesF, Species == "nospec")
@@ -912,7 +1062,9 @@ par(mar = c(4, 4, 0.5, 0.5))
 
 dev.off()
 
-## Tree size
+############################
+## Tree size distribution ## 
+############################
 treesF$DBH2 <- ifelse(treesF$DBH > 50, 50, treesF$DBH)
 treesF$DBHwsg <- ifelse(is.na(treesF$WSG), NA, treesF$DBH2)
 
@@ -927,6 +1079,9 @@ ggplot(treesF)+
 
 ggsave("Output\\WSG\\tree_size_WSG.tiff", width = 11, height = 10, units = "cm")
 
+################################
+## Observed vs. estimated WSG ## 
+################################
 ## Observed vs. estimates WSG figure
 temp <- plotsF[-which(plotsF$ncore == 0),]
 cols <- RColorBrewer::brewer.pal(9, "Greens")[ceiling(plotsF$ncore/7) + 1]
@@ -953,15 +1108,6 @@ par(mar = c(4, 4, 0.5, 0.5))
 
 dev.off()
 
-## WSG vs. size (trees and plots) NOT FINISHED
-plot(WSGtreemod$mean$WSG.pred[which(!is.na(treesF$WSG))] ~ treesF$vol[which(!is.na(treesF$WSG))])
-abline(WSGtreemod$q50$alpha,WSGtreemod$q50$b_vol)
-abline(WSGtreemod$q2.5$alpha,WSGtreemod$q2.5$b_vol)
-abline(WSGtreemod$q97.5$alpha,WSGtreemod$q97.5$b_vol)
-
-plot(rowMeans(WSGdraws[,-1]) ~ plotsF$vol)
-abline(lm(rowMeans(WSGdraws[,-1]) ~ plotsF$volha))
-
 ##################
 ## R-hat checks ##
 ##################
@@ -976,6 +1122,8 @@ lapply(kfolds, function(x) lapply(x,function(y) max(y$rhatmax_alpha)))
 lapply(kfolds, function(x) lapply(x,function(y) max(y$rhatmax_var0)))
 lapply(kfolds, function(x) lapply(x,function(y) apply(y$rhatmax_bcov, 2, max)))
 
+
+
 ############################
 ## Posterior model checks ##
 ############################
@@ -983,26 +1131,31 @@ lapply(kfolds, function(x) lapply(x,function(y) apply(y$rhatmax_bcov, 2, max)))
 #plotmods <- readRDS("Output\\WSG\\plotmods.RDS")
 #WSGdraws <- readRDS("Output\\WSG\\WSGdraws.RDS")
 
-y <- treesF$WSG[which(!is.na(treesF$WSG))]
-yrep <- WSGtreemod$sims.list$WSG.pred[,which(!is.na(treesF$WSG))]
-group <- treesF$speciesid[which(!is.na(treesF$WSG))]
+blank <- ggplot()+theme_void()
+do0 <- bayesplot::ppc_dens_overlay(y = treesF$WSG[which(!is.na(treesF$WSG))], yrep = WSGtreemod$sims.list$WSG.pred[,which(!is.na(treesF$WSG))][1:100,]) + ggtitle("tree model")
+do1 <- bayesplot::ppc_dens_overlay(y = rowMeans(WSGdraws[,-1]), yrep = plotmods$nullmods$null$WSGpred[1:100, ]) + ggtitle("nullmodel")
+do2 <- bayesplot::ppc_dens_overlay(y = rowMeans(WSGdraws[,-1]), yrep = plotmods$nullmods$nullclus$WSGpred[1:100, ]) + ggtitle("nullmodel cluster")
+do3 <- bayesplot::ppc_dens_overlay(y = rowMeans(WSGdraws[,-1]), yrep = plotmods$nullmods$nullarea$WSGpred[1:100, ]) + ggtitle("nullmodel area")
+do4 <- bayesplot::ppc_dens_overlay(y = rowMeans(WSGdraws[,-1]), yrep = plotmods$climmods$clim$WSGpred[1:100, ]) + ggtitle("climatemodel")
+do5 <- bayesplot::ppc_dens_overlay(y = rowMeans(WSGdraws[,-1]), yrep = plotmods$climmods$climclus$WSGpred[1:100, ]) + ggtitle("climatemodel cluster")
+do6 <- bayesplot::ppc_dens_overlay(y = rowMeans(WSGdraws[,-1]), yrep = plotmods$climmods$climarea$WSGpred[1:100, ]) + ggtitle("climatemodel area")
 
-y <- rowMeans(WSGdraws[,-1])
-yrep <- plotmods$climmods$clim$WSGpred
-group <- plotsF$RegionNum
+tiff(file = "Output\\WSG\\ppc_dens_overlay.tiff", width = 8000, height = 6000, res = 900)
+gridExtra::grid.arrange(blank, do0, blank, do1, do2, do3, do4, do5, do6, nrow = 3)
+dev.off()
 
-bayesplot::ppc_dens_overlay(y = y, yrep = yrep[1:100, ])
-bayesplot::ppc_hist(y, yrep[1:10, ])
-bayesplot::ppc_stat(y, yrep, stat = "max")
-bayesplot::ppc_stat(y, yrep, stat = "min")
-bayesplot::ppc_stat(y, yrep, stat = "mean")
-bayesplot::ppc_stat(y, yrep, stat = "median")
-bayesplot::ppc_stat_grouped(y, yrep, group = group, stat = "mean")
+blank <- ggplot()+theme_void()
+es0 <- bayesplot::ppc_error_scatter_avg(y = treesF$WSG[which(!is.na(treesF$WSG))], yrep = WSGtreemod$sims.list$WSG.pred[,which(!is.na(treesF$WSG))][1:100,]) + ggtitle("tree model")
+es1 <- bayesplot::ppc_error_scatter_avg(y = rowMeans(WSGdraws[,-1]), yrep = plotmods$nullmods$null$WSGpred[1:100, ]) + ggtitle("nullmodel")
+es2 <- bayesplot::ppc_error_scatter_avg(y = rowMeans(WSGdraws[,-1]), yrep = plotmods$nullmods$nullclus$WSGpred[1:100, ]) + ggtitle("nullmodel cluster")
+es3 <- bayesplot::ppc_error_scatter_avg(y = rowMeans(WSGdraws[,-1]), yrep = plotmods$nullmods$nullarea$WSGpred[1:100, ]) + ggtitle("nullmodel area")
+es4 <- bayesplot::ppc_error_scatter_avg(y = rowMeans(WSGdraws[,-1]), yrep = plotmods$climmods$clim$WSGpred[1:100, ]) + ggtitle("climatemodel")
+es5 <- bayesplot::ppc_error_scatter_avg(y = rowMeans(WSGdraws[,-1]), yrep = plotmods$climmods$climclus$WSGpred[1:100, ]) + ggtitle("climatemodel cluster")
+es6 <- bayesplot::ppc_error_scatter_avg(y = rowMeans(WSGdraws[,-1]), yrep = plotmods$climmods$climarea$WSGpred[1:100, ]) + ggtitle("climatemodel area")
 
-bayesplot::ppc_error_scatter(y, yrep[1:10,])
-bayesplot::ppc_error_scatter_avg(y, yrep)
-bayesplot::ppc_scatter_avg(y, yrep)
-bayesplot::ppc_scatter_avg_grouped(y, yrep, group = group)
+tiff(file = "Output\\WSG\\ppc_error_scatter_avg.tiff", width = 8000, height = 6000, res = 900)
+gridExtra::grid.arrange(blank, es0, blank, es1, es2, es3, es4, es5, es6, nrow = 3)
+dev.off()
 
 ## Moran's I
 residuals <- colMeans(plotmods$climmods$clim$res)
@@ -1020,4 +1173,26 @@ as.data.frame(ape::Moran.I(residuals, dists.inv, na.rm = T))
 
 spatialEco::morans.plot(residuals,coords = cbind(plotsF$long,plotsF$lat))
 spatialEco::morans.plot(residuals,coords = cbind(treesF$long,treesF$lat))
+
+
+
+
+
+
+## test
+test <- cbind(treesF, WSGpred = WSGtreemod$mean$WSG.pred)
+test$BM <- test$WSGpred * test$vol
+test$WSGwv <- test$WSGpred * test$VOLw
+test <- left_join(test, as.data.frame(test %>% group_by(SiteNum) %>% summarise(BMtot = sum(BM))))
+test$BMw <- test$BM/test$BMtot
+test$WSGwb <- test$WSGpred * test$BMw
+
+test2 <- test %>% group_by(SiteNum) %>% summarise(WSGwc = mean(WSGpred), WSGwv = mean(WSGwv), WSGwb = mean(WSGwb))
+test3 <- left_join(plotsF, test2)
+test3$BM <- test3$volha * test3$WSGwv
+
+plot(test3$BM ~ test3$WSGwc)
+plot(test3$BM ~ test3$WSGwv)
+plot(test3$BM ~ test3$WSGwb)
+
 
