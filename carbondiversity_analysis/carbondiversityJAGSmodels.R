@@ -96,67 +96,7 @@ cat("model {
 ",fill=TRUE)
 sink()
 
-### Carb - plot to cluster
-sink("JAGS//Carbdiv_plot2clus.txt")
-cat("model {
-    
-    #Likelihood model
-    for(s in 1:nsite){
-      carb[s] ~ dlnorm(mu.clus[clus[s]], tau.clus[clus[s]])
-    }
-    
-    for(i in 1:nclus){
-      #carb.clus[i] <- exp(mu.clus[i] + ((1/sqrt(tau.clus[i]))/2))
-      carb.clus[i] <- exp(mu.clus[i])
-      
-      #tau.clus[i] ~ dunif(0.1,100)
-      mu.clus[i] ~ dnorm(log(mediancarb[i]), 10)
-      
-      tau.clus[i] <- 1 / pow((sd.clus * exp(2 * d * size[i])), 2)
-    }
-    
-    sd.clus ~ dunif(0,1)
-    d ~ dnorm(0,0.0001)
-  }
-",fill=TRUE)
-sink()
-
-### Carb - plot to cluster - new
-sink("JAGS//Carbdiv_plot2clus.txt")
-cat("model {
-    
-    #Likelihood model
-    for(s in 1:nsite){
-      carb[s] ~ dlnorm(mu.clus[clus[s]], tau.clus[clus[s]])
-    }
-    
-    for(i in 1:nclus){
-      #carb.clus[i] <- exp(mu.clus[i] + (0.5 * sqrt(1/tau.clus[i])))
-      #carb.clus[i] <- exp(mu.clus[i] + (0.5 * (1/tau.clus[i])))
-      
-      tau.clus[i] ~ dgamma(10,5)
-      mu.clus[i] ~ dnorm(muc[i], sdclus)
-      
-      muc[i] <- alpha + bhab * habitat[i] + belev * elev[i] + barea[area[i]]
-    }
-    
-    sdclus ~ dunif(0,10)
-    alpha ~ dnorm(5.5, 1)
-    belev ~ dnorm(0, 3)
-    bhab ~ dnorm(0, 3)
-    
-    for(k in 1:narea){
-      barea[k] ~ dnorm(0,3)
-    }
-    
-    #alpha ~ dnorm(4, 1/(pow(0.6, 2)))
-    #belev ~ dnorm(0, 1/(pow(1.5,2)))
-  }
-",fill=TRUE)
-sink()
-
-
-# ### Carb - plot to cluster - spatial decay
+# ### Carb - plot to cluster
 # sink("JAGS//Carbdiv_plot2clus.txt")
 # cat("model {
 #     
@@ -166,67 +106,89 @@ sink()
 #     }
 #     
 #     for(i in 1:nclus){
-#       carb.clus[i] <- exp(mu.clus[i] + (0.5 * sqrt(1/tau.clus[i])))
+#       #carb.clus[i] <- exp(mu.clus[i] + ((1/sqrt(tau.clus[i]))/2))
+#       carb.clus[i] <- exp(mu.clus[i])
 #       
-#       tau.clus[i] ~ dgamma(10,5)
-#       mu.clus[i] <- alpha + bhab * habitat[i] + belev * elev[i] + W[i]
+#       #tau.clus[i] ~ dunif(0.1,100)
+#       mu.clus[i] ~ dnorm(log(mediancarb[i]), 10)
 #       
-#       muW[i] <- 0
-#       
-#       for(j in 1:nclus){
-#         H[i,j] <- (1/tauw) * exp(-phi * pow(d[i,j], 2))
-#       }
+#       tau.clus[i] <- 1 / pow((sd.clus * exp(2 * d * size[i])), 2)
 #     }
 #     
-#     W[1:nclus] ??? dmnorm(muW[], Omega[,])
-#     tauw ??? dgamma(0.001,0.001)T(1,)
-#     phi ??? dgamma(0.01,0.01)T(1,)
-#     
-#     Omega[1:nclus,1:nclus] <- inverse(H[1:nclus,1:nclus])
-#     
-#     sdclus ~ dunif(0,10)
-#     alpha ~ dnorm(5.5, 1)
-#     belev ~ dnorm(0, 3)
-#     bhab ~ dnorm(0, 3)
+#     sd.clus ~ dunif(0,1)
+#     d ~ dnorm(0,0.0001)
 #   }
 # ",fill=TRUE)
 # sink()
 
-# ### Carb - plot to cluster - spatial decay
-# sink("JAGS//test.txt")
-# cat("model {
-#     
-#     #Likelihood model
-#     for(i in 1:nclus){
-#       tau.clus[i] ~ dgamma(10,5)
-#       #mu.clus[i] <- alpha + W[i]
-#     }
-#     
-#     #W[1:nclus] ??? dmnorm(muW[], Omega[,])
-#     #tauw ??? dgamma(0.001,0.001)
-#     #phi ??? dgamma(0.01,0.01)
-#     phi ~ dgamma(1, 0.1)
-#     tauw ~ dgamma(2,1)
-#     W[1:nclus] ??? dmnorm.vcov(muW[], H[,])
-#     
-#     #alpha ~ dnorm(5.5, 1)
-#     for(i in 1:nclus){
-#      muW[i] <- 0
-#      H[i,i] <- 1/tauw
-#      for(j in 1:(i-1)){
-#         H[i,j] <- (1/tauw) * exp(-phi * pow(d[i,j], 2))
-#         H[j,i] <- H[i,j]
-#       }}
-#     #Omega[1:nclus,1:nclus] <- inverse(H[1:nclus, 1:nclus])
-#     #Omega <- inverse(H)
-#   }
-# ",fill=TRUE)
-# sink()
-# 
-# carbmod_clus <- jagsUI::jags(model.file = "JAGS//test.txt", data = carbdat, #inits = modinits,
-#                              parameters.to.save = c("H","Omega","muW","tauw","phi","alpha","bhab","belev","barea","carb.clus","tau.clus","mu.clus","d","sd.clus"),
-#                              n.chains = n.chains, n.iter = n.iter, n.burnin = n.burnin, n.thin = n.thin,
-#                              parallel = T, n.cores = n.cores, codaOnly = c("loglik"))
+### Carb - plot to cluster
+sink("JAGS//Carbdiv_plot2clus.txt")
+cat("model {
+    
+    #Likelihood model
+    for(s in 1:nsite){
+      carb[s] ~ dnorm(mul[clus[s]], taul[clus[s]])
+    }
+    
+    for(i in 1:nclus){
+      carb.clus[i] ~ dnorm(mu[i], tauC[habitat[i]])T(0,)
+      #carb.clus[i] ~ dnorm(mu[i], tauC[i])T(0,)
+      mu[i] <- alpha[habitat[i]] + belev[habitat[i]] * elev[i] #+ barea[area[i],habitat[i]]
+      
+      mul[i] <- log(carb.clus[i]) - 1/(2*taul[i])
+      taul[i] <- tauS[habitat[i]]
+      
+      #tauC[i] <- 1 / (pow(sdC[habitat[i]], 2) * exp(2 * d[habitat[i]] * mu[i]))
+    }
+    
+    for(h in 1:nhab){
+      alpha[h] ~ dnorm(0, 1/(5^2))
+      belev[h] ~ dnorm(0, 1/(5^2))
+      sdS[h] ~ dnorm(0, 1/(5^2))T(0,)
+      tauS[h] <- 1/pow(sdS[h], 2)
+      sdC[h] ~ dnorm(0, 1/(5^2))T(0,)
+      tauC[h] <- 1/pow(sdC[h], 2)
+      
+      #d[h] ~ dnorm(0,0.1)
+      
+      # for(k in 1:narea){
+      #   barea[k,h] ~ dnorm(0, 10^-5)
+      # }
+    }
+  }
+",fill=TRUE)
+sink()
+
+### Carb - plot to cluster
+sink("JAGS//Carbdiv_plot2clus.txt")
+cat("model {
+    
+    #Likelihood model
+    for(s in 1:nsite){
+      carb[s] ~ dlnorm(mul[clus[s]], taul[clus[s]])
+    }
+    
+    for(i in 1:nclus){
+      carb.clus[i] ~ dnorm(mu[i], tauC[habitat[i]])T(0,)
+      mu[i] <- alpha[habitat[i]] + belev[habitat[i]] * elev[i] #+ barea[area[i],habitat[i]]
+      
+      mul[i] <- log(carb.clus[i]) - 1/(2*taul[i])
+      taul[i] <- tauS[habitat[i]]
+    }
+    
+    for(h in 1:nhab){
+      alpha[h] ~ dnorm(0, 10^-5)
+      belev[h] ~ dnorm(0, 10^-3)
+      tauC[h] ~ dgamma(1, 1)
+      tauS[h] ~ dgamma(1, 1)
+      
+      for(k in 1:narea){
+        barea[k,h] ~ dnorm(0, 10^-5)
+      }
+    }
+  }
+",fill=TRUE)
+sink()
 
 ### Carb - plot to area
 sink("JAGS//Carbdiv_plot2area.txt")

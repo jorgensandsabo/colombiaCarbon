@@ -53,38 +53,63 @@ redlist_status$X <- gsub("[ ]", "_", redlist_status$X)
 ## Draw cluster carbon values ##
 ################################
 spatial <- read.csv("Data\\vegetation\\Spatialdata.csv")
-plotdata <- left_join(AGBlist_birds$plotdata, spatial)
+plotdata <- left_join(AGBlist_birds$plotdata, spatial[,c("SiteCode","ALOSelev")])
 
 carbdat <- list("nsite" = nrow(AGBlist_birds$plotdata),
                 "nclus" = max(AGBlist_birds$plotdata$ClusNum),
                 "carb" = as.numeric(rowMeans(AGBlist_birds$AGBdraws[order(AGBlist_birds$AGBdraws$SiteNum),-1])),
                 "clus" = AGBlist_birds$plotdata[order(AGBlist_birds$plotdata$SiteNum),]$ClusNum,
-                "mediancarb" = mutate_all(left_join(data.frame(cluster = c(seq(1, max(AGBlist_birds$plotdata$ClusNum), 1))),
-                                                    aggregate(rowMeans(AGBlist_birds$AGBdraws[order(AGBlist_birds$AGBdraws$SiteNum),-1]), list(cluster = AGBlist_birds$plotdata[order(AGBlist_birds$plotdata$SiteNum), c("ClusNum")]), mean)),
-                                                    ~replace(., is.na(.), 0))[,2],
-                "size" = mutate_all(left_join(data.frame(cluster = c(seq(1, max(AGBlist_birds$plotdata$ClusNum), 1))),
-                                              aggregate(AGBlist_birds$plotdata[order(AGBlist_birds$plotdata$SiteNum),"Size"], list(cluster = AGBlist_birds$plotdata[order(AGBlist_birds$plotdata$SiteNum), c("ClusNum")]), mean)),
-                                    ~replace(., is.na(.), 0))[,2],
                 "elev" = (data.frame(left_join(data.frame(ClusNum = c(1:max(AGBlist_birds$plotdata$ClusNum))), plotdata %>% group_by(ClusNum) %>% summarise(elev = mean(ALOSelev))) %>% mutate(elev = case_when(is.na(elev) ~ 0, !is.na(elev) ~ elev)))$elev)/1000,
                 "habitat" = as.numeric(as.factor(data.frame(left_join(data.frame(ClusNum = c(1:max(AGBlist_birds$plotdata$ClusNum))), plotdata %>% group_by(ClusNum) %>% summarise(habitat = first(HabitatP))) %>% mutate(habitat = case_when(is.na(habitat) ~ "Forest", !is.na(habitat) ~ habitat)))$habitat)),
                 "area" = as.numeric(as.factor(data.frame(left_join(data.frame(ClusNum = c(1:max(AGBlist_birds$plotdata$ClusNum))), plotdata %>% group_by(ClusNum) %>% summarise(area = first(AreaNum))) %>% mutate(area = case_when(is.na(area) ~ as.integer(1), !is.na(area) ~ area)))$area)),
-                "narea" = max(plotdata$AreaNum))
+                "narea" = max(plotdata$AreaNum),
+                "nhab" = length(unique(plotdata$HabitatP)))
 
-n.chains <- 2
-n.burnin <- 5000
-n.iter <- n.burnin + 5000
+carbdat <- list(nhab = carbdat$nhab,
+                nsite = carbdat$nsite,
+                nclus = carbdat$nclus,
+                carb = scale(log(carbdat$carb))[,1],
+                elev = scale(carbdat$elev)[,1],
+                clus = carbdat$clus,
+                habitat = carbdat$habitat)
+
+carbdat <- list(nhab = carbdat$nhab,
+                nsite = carbdat$nsite,
+                nclus = carbdat$nclus,
+                carb = log(carbdat$carb),
+                elev = carbdat$elev,
+                clus = carbdat$clus,
+                habitat = carbdat$habitat)
+
+# modinits <- function(){list(carb.clus = mutate_all(left_join(data.frame(cluster = c(seq(1, max(AGBlist_birds$plotdata$ClusNum), 1))),
+#                                                              aggregate(rowMeans(AGBlist_birds$AGBdraws[order(AGBlist_birds$AGBdraws$SiteNum),-1]), list(cluster = AGBlist_birds$plotdata[order(AGBlist_birds$plotdata$SiteNum), c("ClusNum")]), mean)),
+#                                                    ~replace(., is.na(.), 0))[,2],
+#                             alpha = c(mean(rowMeans(AGBlist_birds$AGBdraws[which(AGBlist_birds$plotdata$HabitatP == "Forest"),-1])),
+#                                          mean(rowMeans(AGBlist_birds$AGBdraws[which(AGBlist_birds$plotdata$HabitatP == "Paramo"),-1])),
+#                                          mean(rowMeans(AGBlist_birds$AGBdraws[which(AGBlist_birds$plotdata$HabitatP == "Pasture"),-1]))),
+#                             tauC = rnorm(3,c(1/var(rowMeans(AGBlist_birds$AGBdraws[which(AGBlist_birds$plotdata$HabitatP == "Forest"),-1])),
+#                                      1/var(rowMeans(AGBlist_birds$AGBdraws[which(AGBlist_birds$plotdata$HabitatP == "Paramo"),-1])),
+#                                      1/var(rowMeans(AGBlist_birds$AGBdraws[which(AGBlist_birds$plotdata$HabitatP == "Pasture"),-1]))),0.00005),
+#                             tauS = rnorm(3,c(1/var(rowMeans(log(AGBlist_birds$AGBdraws[which(AGBlist_birds$plotdata$HabitatP == "Forest"),-1]))),
+#                                      1/var(rowMeans(log(AGBlist_birds$AGBdraws[which(AGBlist_birds$plotdata$HabitatP == "Paramo"),-1]))),
+#                                      1/var(rowMeans(log(AGBlist_birds$AGBdraws[which(AGBlist_birds$plotdata$HabitatP == "Pasture"),-1])))),0.05)
+# )}
+
+n.chains <- 4
+n.burnin <- 10^4
+n.iter <- n.burnin + 10000
 n.thin <- 1
 n.cores <- n.chains
 
 start.time <- Sys.time()
-carbmod_clus <- jagsUI::jags(model.file = "JAGS//CarbDiv_plot2clus.txt", data = carbdat, #inits = modinits,
-                             parameters.to.save = c("alpha","mc","bhab","belev","barea","carb.clus","tau.clus","mu.clus","d","sd.clus"),
+carbmod_clus <- jagsUI::jags(model.file = "JAGS//CarbDiv_plot2clus.txt", data = carbdat,# inits = modinits,
+                             parameters.to.save = c("alpha","belev","d","sdC","sdS","tauC","tauS","d","carb.clus","mu","mul","barea"),
                              n.chains = n.chains, n.iter = n.iter, n.burnin = n.burnin, n.thin = n.thin,
                              parallel = T, n.cores = n.cores, codaOnly = c("loglik"))
 t.carbmod <- Sys.time()-start.time
 
 cAGB_field <- carbdat$mediancarb[-27]
-cAGB_est <- carbmod_clus$mean$carb.clus[-27]
+cAGB_est <- carbmod_clus$mean$mu.clus[-27]
 cAGB_hab <- carbdat$habitat[-27]
 cAGB_elev <- carbdat$elev[-27]
 
