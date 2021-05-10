@@ -111,9 +111,6 @@ treesF$Region[which(treesF$Region == "amazonia")] <- "Amazon"
 treesF$Region[which(treesF$Region == "occidental")] <- "West Andes"
 
 unique(treesF[order(treesF$RegionNum),]$Region)
-regcol <- c("red","green","blue","yellow","grey","black","white")
-regcol <- c("#267234","#656150","#b5b09e","#84a955","#84a955","#6f5a67","#44437e")
-regcol <- c("#189a39","#55928f","#b5b09e","#84a955","#decd60","#6f5a67","#44437e")
 regcol <- c("#166617","#90ba6a","#b5b09e","#a26117","#750c9f","#decd60","#41507e")
 
 ### Plot dataset
@@ -820,7 +817,6 @@ randdiff <- sapply(1:3, function(x) WSGscale[[1]][[x]] - WSGscale[[2]][[x]], sim
 randdiff <- lapply(randdiff, function(x) t(apply(x, 1, sort, na.last = T)))
 randdiff <- lapply(randdiff, function(x) x[,-c(1:(ncol(x)*0.025),(ncol(x)*0.975):ncol(x))])
 signif <- lapply(randdiff, function(x) ifelse(apply(x, 1, function(y) y[1] / y[length(y)]) < 0, "-","*"))
-
 
 ## Error data frames for plotting
 regnums <- list(as.data.frame(plotsF %>% group_by(ClusNum) %>% summarise(RegionNum = first(RegionNum)))$RegionNum,
