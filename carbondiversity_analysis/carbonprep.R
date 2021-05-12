@@ -6,6 +6,13 @@ if(file.exists('C:\\Users\\jorgesan\\Documents\\machine_identifier_lksj7842.txt'
 setwd(dir.path)
 library(dplyr)
 
+bayes_R2_res <- function(y, ypred) {
+  e <- ypred - y
+  var_ypred <- apply(ypred, 1, var)
+  var_e <- apply(e, 1, var)
+  var_ypred / (var_ypred + var_e)
+}
+
 ###############
 ## Read data ##
 ###############
@@ -145,6 +152,7 @@ rm(coredSp, Spatial, AddPoints)
 moddat <- list("n_trees" = length(Treedata$WSG),                      # Number of observations
                "n_cores" = length(which(!is.na(Treedata$WSG))),       # Number of cores
                "n_spec" = length(unique(Treedata$Species)),           # Number of species
+               "n_biogeo" = length(unique(Treedata$bioNum)),          # Number of biogeographic regions
                "n_area" = length(unique(plotdata$AreaNum)),           # Number of areas
                "n_cluster" = length(unique(plotdata$ClusNum)),        # Number of clusters
                "n_site" = length(unique(plotdata$SiteNum)),           # Number of sites
@@ -152,21 +160,19 @@ moddat <- list("n_trees" = length(Treedata$WSG),                      # Number o
                "core_treenum" = which(!is.na(Treedata$WSG)),          # Cored trees
                "species" = as.numeric(as.factor(Treedata$Species)),   # Vector of species
                "speciesid" = Treedata$speciesid,                      # 0/1 - species determined or not
-               "site" = Treedata$SiteNum,                                                                        # Site
-               "cluster_site" = data.frame(plotdata %>% group_by(SiteNum) %>% summarise(first(ClusNum)))[,2],    # Cluster for each site
-               "area_cluster" = data.frame(plotdata %>% group_by(ClusNum) %>% summarise(first(AreaNum)))[,2])    # Area for each cluster
+               "site" = Treedata$SiteNum,                                                                             # Site for each observation
+               "cluster_site" = plotdata %>% group_by(SiteNum) %>% summarise(clus = first(ClusNum)) %>% pull(clus),   # Cluster for each site
+               "area_cluster" = plotdata %>% group_by(ClusNum) %>% summarise(area = first(AreaNum)) %>% pull(area),   # Area for each cluster
+               "biogeo_area" = plotdata %>% group_by(AreaNum) %>% summarise(reg = first(bioNum)) %>% pull(reg))       # Region for each area
 
 wsgtreemod <- rstan::stan(file = "STAN\\carbdiv_wsgtreemodel.stan", data = moddat, chains = 3, iter = 2000, cores = 3)
-
-bayesplot::mcmc_trace(wsgtreemod, pars = c("alpha","sigma1","sigma2","mu_spec","sigma_spec","sigma_area","sigma_cluster","sigma_site"))
-pairs(wsgtreemod, pars = c("alpha","sigma1","sigma2","mu_spec","sigma_spec","sigma_spec_raw[1]","b_spec[1]"), condition = "energy__")
-pairs(wsgtreemod, pars = c("b_area[1]","sigma_area","b_cluster[1]","sigma_cluster","sigma_cluster_raw[1]","b_site[1]","sigma_site","sigma_site_raw[1]"), condition = "energy__")
 
 # Extract WSG and tree AGB estimates
 wsgmu <- rstan::extract(wsgtreemod, "mu")[[1]]
 wsgsigma <- rstan::extract(wsgtreemod, "sigma")[[1]]
-wsgdraws <- sapply(1:nrow(wsgmu), function(x) rnorm(ncol(wsgmu), wsgmu[x,], wsgsigma[x,]))
-wsgdraws[which(!is.na(Treedata$WSG)),] <- t(matrix(data = rep(Treedata$WSG[which(!is.na(Treedata$WSG))], ncol(wsgdraws)), ncol = length(Treedata$WSG[which(!is.na(Treedata$WSG))]), nrow = ncol(wsgdraws), byrow = TRUE))
+wsgmoddraws <- sapply(1:nrow(wsgmu), function(x) rnorm(ncol(wsgmu), wsgmu[x,], wsgsigma[x,]))
+wsgdraws <- wsgmoddraws
+wsgdraws[which(!is.na(Treedata$WSG)),] <- t(matrix(data = rep(Treedata$WSG[which(!is.na(Treedata$WSG))], ncol(wsgmoddraws)), ncol = length(Treedata$WSG[which(!is.na(Treedata$WSG))]), nrow = ncol(wsgmoddraws), byrow = TRUE))
 wsgdraws_volw <- wsgdraws * Treedata$VOLw 
 
 wsgdraws_plot <- data.frame(wsgdraws_volw) %>% dplyr::mutate(SiteNum = Treedata$SiteNum) %>% reshape2::melt(id.vars = "SiteNum") %>% reshape2::dcast(SiteNum ~ variable, value.var="value", fun.aggregate = sum)
@@ -175,7 +181,33 @@ treedraws_plot[,-c(1:2)] <- (treedraws_plot$Treevol * treedraws_plot[,-c(1:2)]) 
 treedraws_plot <- treedraws_plot[,-2]
 
 # Posterior parameter table
-summary_wsgtreemod <- rstan::summary(wsgtreemod, pars = c("alpha","sigma1","sigma2","sigma_area","sigma_cluster","sigma_site","mu_spec","sigma_spec"))$summary[,c("mean","2.5%","97.5%","n_eff","Rhat")]
+R2 <- bayes_R2_res(y = t(wsgmoddraws), ypred = rstan::extract(wsgtreemod, "mu")[[1]])
+rmse <- sqrt(rowMeans((wsgmoddraws[which(!is.na(Treedata$WSG)),] - moddat$WSG)^2))
+postest_wsgtreemod <- rstan::summary(wsgtreemod, pars = c("alpha","sigma1","sigma2","sigma_area","sigma_cluster","sigma_site","mu_spec","sigma_spec"))$summary[,c("mean","2.5%","97.5%")]
+
+rbind(data.frame(postest_wsgtreemod),
+      "RMSE" = data.frame("mean" = mean(rmse), "2.5%" = sort(rmse)[length(rmse)*0.025], "97.5%" = sort(rmse)[length(rmse)*0.975]),
+      "R2" = data.frame("mean" = mean(R2), "2.5%" = sort(R2)[length(R2)*0.025], "97.5%" = sort(R2)[length(R2)*0.975]))
+write.csv(postest_wsgtreemod, "Output//CarbDiv//postest_wsgtreemod.csv")
+
+# Posterior predictive checks and nuts 
+bayesplot::mcmc_trace(wsgtreemod, pars = c("alpha","sigma1","sigma2","mu_spec","sigma_spec","sigma_biogeo","sigma_area","sigma_cluster","sigma_site"))
+bayesplot::mcmc_parcoord(wsgtreemod, np = bayesplot::nuts_params(wsgtreemod,div_size = 3), pars = c("alpha","sigma1","sigma2","sigma_biogeo","sigma_area","sigma_cluster","sigma_site","mu_spec","sigma_spec"))
+bayesplot::mcmc_parcoord(wsgtreemod, np = bayesplot::nuts_params(wsgtreemod,div_size = 3), pars = c("b_biogeo[1]","b_area[1]","b_cluster[1]","b_site[1]","sigma_biogeo_raw[1]","sigma_area_raw[1]","sigma_cluster_raw[1]","sigma_site_raw[1]"))
+
+pwsg_pairs1 <- bayesplot::mcmc_pairs(wsgtreemod, np = bayesplot::nuts_params(wsgtreemod), pars = c("alpha","sigma1","sigma2","mu_spec","sigma_spec","b_spec[1]","sigma_spec_raw[1]"))
+pwsg_pairs2 <- bayesplot::mcmc_pairs(wsgtreemod, np = bayesplot::nuts_params(wsgtreemod), pars = c("b_biogeo[1]","b_area[1]","b_cluster[1]","b_site[1]","sigma_biogeo","sigma_area","sigma_cluster","sigma_site","sigma_area_raw[1]","sigma_cluster_raw[1]","sigma_site_raw[1]"))
+
+pwsg_grid <- bayesplot::bayesplot_grid(
+                bayesplot::ppc_dens_overlay(moddat$WSG, t(wsgmoddraws)[1:100,which(!is.na(Treedata$WSG))]),
+                bayesplot::mcmc_nuts_energy(bayesplot::nuts_params(wsgtreemod)),
+                bayesplot::mcmc_rhat(bayesplot::rhat(wsgtreemod)),
+                bayesplot::mcmc_neff(bayesplot::neff_ratio(wsgtreemod), size = 2)
+              )
+
+ggplot2::ggsave(filename = "Output\\CarbDiv\\wsg_pairs1.png", plot = pwsg_pairs1, dpi = 900, width = 20, height = 20)
+ggplot2::ggsave(filename = "Output\\CarbDiv\\wsg_pairs2.png", plot = pwsg_pairs2, dpi = 900, width = 20, height = 20)
+ggplot2::ggsave(filename = "Output\\CarbDiv\\wsg_grid.png", plot = pwsg_grid, dpi = 900, width = 20, height = 20)
 
 # Scatter plots measured/estimated (stem-level, plot-level)
 cols <- RColorBrewer::brewer.pal(9, "Greens")[ceiling(plotdata[order(plotdata$SiteNum),]$ncore/7) + 1]
@@ -208,27 +240,48 @@ saveRDS(wsgtreemod, file = "Output\\CarbDiv\\wsgtreemod.rds")
 #########################
 moddat <- list("n_site" = length(Grassdata$GrassAGB),                                  # Number of observations
                "n_grass" = length(which(!is.na(Grassdata$GrassAGB))),                  # Number of grass samples
-               "n_area" = length(unique(plotdata$AreaNum)),                            # Number of areas
-               "n_cluster" = length(unique(plotdata$ClusNum)),
                "n_habitat" = length(unique(Grassdata$HabitatP)),                       # Number of habitats
+               "n_cluster" = length(unique(plotdata$ClusNum)),                         # Number of clusters
                "grass" = Grassdata$GrassAGB[which(!is.na(Grassdata$GrassAGB))],        # Grass biomass data
-               "habitat" = as.numeric(as.factor(Grassdata %>% group_by(SiteNum) %>% summarise(hab = first(HabitatP)) %>% pull(hab))),                  # Vector of habitat                                           # Area of each observation
-               "cluster" = Grassdata %>% group_by(SiteNum) %>% summarise(clus = first(ClusNum)) %>% pull(clus),
-               "area_cluster" = plotdata %>% group_by(ClusNum) %>% summarise(area = first(AreaNum)) %>% pull(area),
-               "grass_sitenum" = Grassdata$SiteNum[which(!is.na(Grassdata$GrassAGB))])                    # Site of each grass sample
+               "habitat" = as.numeric(as.factor(Grassdata %>% group_by(SiteNum) %>% summarise(hab = first(HabitatP)) %>% pull(hab))),     # Habitat at each site
+               "hab_cluster" = as.numeric(as.factor(Grassdata %>% group_by(ClusNum) %>% summarise(hab = first(HabitatP)) %>% pull(hab))), # Habitat at each cluster
+               "cluster" = Grassdata %>% group_by(SiteNum) %>% summarise(clus = first(ClusNum)) %>% pull(clus),                           # Cluster at each site
+               "grass_sitenum" = Grassdata$SiteNum[which(!is.na(Grassdata$GrassAGB))])                                                    # Site of each grass sample
 
 grassmod <- rstan::stan(file = "STAN\\carbdiv_grassmodel.stan", data = moddat, chains = 3, iter = 2000, cores = 3)
 
-bayesplot::mcmc_trace(grassmod, pars = c("alpha[1]","alpha[2]","sigma_hab[1]","sigma_hab[2]","sigma_cluster","sigma_area"))
-pairs(grassmod, pars = c("alpha[1]","alpha[2]","sigma_hab[1]","sigma_hab[2]","sigma_cluster","sigma_area"), condition = "energy__")
-
 grassmu <- rstan::extract(grassmod, "mu")[[1]]
 grassigma <- rstan::extract(grassmod, "sigma")[[1]]
-grassdraws <- sapply(1:nrow(grassmu), function(x) rnorm(ncol(grassmu), grassmu[x,], grassigma[x,]))
-grassdraws[which(!is.na(Grassdata$GrassAGB)),] <- t(matrix(data = rep(Grassdata$GrassAGB[which(!is.na(Grassdata$GrassAGB))], ncol(grassdraws)), ncol = length(Grassdata$GrassAGB[which(!is.na(Grassdata$GrassAGB))]), nrow = ncol(grassdraws), byrow = TRUE))
+grassmoddraws <- sapply(1:nrow(grassmu), function(x) rnorm(ncol(grassmu), grassmu[x,], grassigma[x,]))
+grassdraws <- grassmoddraws
+grassdraws[which(!is.na(Grassdata$GrassAGB)),] <- t(matrix(data = rep(Grassdata$GrassAGB[which(!is.na(Grassdata$GrassAGB))], ncol(grassmoddraws)), ncol = length(Grassdata$GrassAGB[which(!is.na(Grassdata$GrassAGB))]), nrow = ncol(grassmoddraws), byrow = TRUE))
 grassdraws <- data.frame(SiteNum = Grassdata$SiteNum, grassdraws)
 
 # Posterior parameter table
+R2 <- bayes_R2_res(y = t(grassmoddraws), ypred = rstan::extract(grassmod, "mu")[[1]])
+rmse <- sqrt(rowMeans((grassmoddraws[which(!is.na(Grassdata$GrassAGB)),] - moddat$grass)^2))
+postest_grassmod <- rstan::summary(grassmod, pars = c("alpha_hab","sigma_hab","sigma_cluster_hab"))$summary[,c("mean","2.5%","97.5%")]
+
+rbind(data.frame(postest_grassmod),
+      "RMSE" = data.frame("mean" = mean(rmse), "2.5%" = sort(rmse)[length(rmse)*0.025], "97.5%" = sort(rmse)[length(rmse)*0.975]),
+      "R2" = data.frame("mean" = mean(R2), "2.5%" = sort(R2)[length(R2)*0.025], "97.5%" = sort(R2)[length(R2)*0.975]))
+write.csv(postest_grassmod, "Output//CarbDiv//postest_grassmod.csv")
+
+# Posterior predictive checks and nuts 
+bayesplot::mcmc_trace(grassmod, pars = c("alpha_hab[1]","alpha_hab[2]","sigma_hab[1]","sigma_hab[2]","sigma_cluster_hab[1]","sigma_cluster_hab[2]"))
+bayesplot::mcmc_parcoord(grassmod, np = bayesplot::nuts_params(grassmod,div_size = 3), pars = c("alpha_hab[1]","alpha_hab[2]","sigma_hab[1]","sigma_hab[2]","sigma_cluster_hab[1]","sigma_cluster_hab[2]"))
+
+pgrass_pairs <- bayesplot::mcmc_pairs(grassmod, np = bayesplot::nuts_params(grassmod), pars = c("alpha_hab[1]","alpha_hab[2]","sigma_hab[1]","sigma_hab[2]","sigma_cluster_hab[1]","sigma_cluster_hab[2]"))
+
+pgrass_grid <- bayesplot::bayesplot_grid(
+  bayesplot::ppc_dens_overlay(moddat$grass, t(grassmoddraws)[1:100,which(!is.na(Grassdata$GrassAGB))]),
+  bayesplot::mcmc_nuts_energy(bayesplot::nuts_params(grassmod)),
+  bayesplot::mcmc_rhat(bayesplot::rhat(grassmod)),
+  bayesplot::mcmc_neff(bayesplot::neff_ratio(grassmod), size = 2)
+)
+
+ggplot2::ggsave(filename = "Output\\CarbDiv\\grass_pairs.png", plot = pgrass_pairs, dpi = 900, width = 20, height = 20)
+ggplot2::ggsave(filename = "Output\\CarbDiv\\grass_grid.png", plot = pgrass_grid, dpi = 900, width = 20, height = 20)
 
 # Save model object
 grassmod@stanmodel@dso <- new("cxxdso")
@@ -275,60 +328,89 @@ AGBlist <- list(AGBdraws = AGBdraws_plot, treedraws = treedraws_plot, deaddraws 
 
 saveRDS(AGBlist, "Output\\CarbDiv\\AGBlist.RDS")
 
-
 ##############################
 ## Upscale to cluster level ##
 ##############################
-#AGBlist <- readRDS("Output\\CarbDiv\\AGBlist.RDS")
+AGBlist <- readRDS("Output\\CarbDiv\\AGBlist.RDS")
 spatial <- read.csv("Data\\vegetation\\Spatialdata.csv")
 AGBlist$plotdata <- dplyr::left_join(AGBlist$plotdata, spatial[,c("SiteCode","ALOSelev")])   ## Add environmental covariates
 
 AGBlist_forest <- lapply(AGBlist, function(x) x[which(x$SiteNum %in% AGBlist$plotdata[AGBlist$plotdata$HabitatP == "Forest",]$SiteNum),])
 AGBlist_paramo <- lapply(AGBlist, function(x) x[which(x$SiteNum %in% AGBlist$plotdata[AGBlist$plotdata$HabitatP == "Paramo",]$SiteNum),])
 
-forestdata <- list(n_point = nrow(AGBlist_forest$plotdata),
-                   n_cluster = length(unique((AGBlist_forest$plotdata$ClusNum))),
-                   lcarbon_point = log(as.numeric(rowMeans(AGBlist_forest$AGBdraws[order(AGBlist_forest$plotdata$ClusNum),-1]))),
-                   elevation = scale(as.data.frame(AGBlist_forest$plotdata %>% group_by(ClusNum) %>% summarise(mean(ALOSelev)))[,2])[,1],
-                   cluster = as.numeric(as.factor(AGBlist_forest$plotdata[order(AGBlist_forest$plotdata$ClusNum),]$ClusNum)),
-                   plotsize = AGBlist_forest$plotdata %>% mutate(plotsize = case_when(Size < 200 ~ 1, Size >= 200 ~ 0)) %>% pull(plotsize))
+forestdata <- list(n_point = nrow(AGBlist_forest$plotdata),                                                                                  # Number of points
+                   n_cluster = length(unique(AGBlist_forest$plotdata$ClusNum)),                                                              # Number of clusters
+                   lcarbon_point = log(as.numeric(rowMeans(AGBlist_forest$AGBdraws[order(AGBlist_forest$AGBdraws$SiteNum),-1]))),            # Carbon at each point
+                   elevation = scale(AGBlist_forest$plotdata %>% group_by(ClusNum) %>% summarise(elev = mean(ALOSelev)) %>% pull(elev))[,1], # Elevation at each cluster
+                   cluster = as.numeric(as.factor(AGBlist_forest$plotdata[order(AGBlist_forest$plotdata$SiteNum),]$ClusNum)),                # Cluster at each point
+                   plotsize = AGBlist_forest$plotdata[order(AGBlist_forest$plotdata$SiteNum),] %>% mutate(plotsize = case_when(Size < 200 ~ 1, Size >= 200 ~ 0)) %>% pull(plotsize), # Plotsize for each point
+                   n_area = length(unique(AGBlist_forest$plotdata$AreaNum)),
+                   area_cluster = AGBlist_forest$plotdata %>% group_by(ClusNum) %>% summarise(area = first(AreaNum)) %>% pull(area))
 
-paramodata <- list(n_point = nrow(AGBlist_paramo$plotdata),
-                   n_cluster = length(unique((AGBlist_paramo$plotdata$ClusNum))),
-                   lcarbon_point = log(as.numeric(rowMeans(AGBlist_paramo$AGBdraws[order(AGBlist_paramo$plotdata$ClusNum),-1]))),
-                   elevation = scale(as.data.frame(AGBlist_paramo$plotdata %>% group_by(ClusNum) %>% summarise(mean(ALOSelev)))[,2])[,1],
-                   cluster = as.numeric(as.factor(AGBlist_paramo$plotdata[order(AGBlist_paramo$plotdata$ClusNum),]$ClusNum)))
+paramodata <- list(n_point = nrow(AGBlist_paramo$plotdata),                                                                                  # Number of points
+                   n_cluster = length(unique(AGBlist_paramo$plotdata$ClusNum)),                                                              # Number of clusters
+                   lcarbon_point = log(as.numeric(rowMeans(AGBlist_paramo$AGBdraws[order(AGBlist_paramo$AGBdraws$SiteNum),-1]))),            # Carbon at each point
+                   elevation = scale(AGBlist_paramo$plotdata %>% group_by(ClusNum) %>% summarise(elev = mean(ALOSelev)) %>% pull(elev))[,1], # Elevation at each cluster
+                   cluster = as.numeric(as.factor(AGBlist_paramo$plotdata[order(AGBlist_paramo$plotdata$SiteNum),]$ClusNum)))              # Cluster at each point
 
-clusmod_forest1 <- rstan::stan(file = "STAN\\carbdiv_clus_forest1.stan", data = forestdata, chains = 3, iter = 5000)
+clusmod_forest1 <- rstan::stan(file = "STAN\\carbdiv_clus_forest1.stan", data = forestdata, chains = 3, iter = 5000, control = list(adapt_delta=0.99))
 clusmod_paramo1 <- rstan::stan(file = "STAN\\carbdiv_clus_paramo1.stan", data = paramodata, chains = 3, iter = 5000, control = list(adapt_delta=0.99))
-  # 6 divergent transitions after warmup
+  # 6+ divergent transitions after warmup
 
 clusmod_forest2 <- rstan::stan(file = "STAN\\carbdiv_clus_forest2.stan", data = forestdata, chains = 3, iter = 5000)
 clusmod_paramo2 <- rstan::stan(file = "STAN\\carbdiv_clus_paramo2.stan", data = paramodata, chains = 3, iter = 5000)
 
 ## CHECKS TEMP
-pairs(clusmod_forest1, pars=c("lp__","alpha","sigma_cluster","lsigma_point","beta_elev"))
-pairs(clusmod_forest1, pars=c("alpha","sigma_cluster","lsigma_point","beta_elev","carbon_cluster[6]","lsigma_point","sigma_c_raw[6]"))
+pairs(clusmod_paramo1, pars=c("lp__","alpha","sigma_cluster","sigma_c_raw[1]","lsigma_point","beta_elev","carbon_cluster[1]"))
+pairs(clusmod_forest1, pars=c("alpha","sigma_cluster_zero","powvar","cluster_mean[1]","lsigma_small","lsigma_offset","sigma_area","beta_elev","carbon_cluster[1]"))
+pairs(clusmod_paramo2, pars=c("lp__","alpha","lsigma_point","beta_elev"))
+pairs(clusmod_forest2, pars=c("alpha","lsigma_small","lsigma_offset","sigma_area","beta_elev","carbon_cluster[1]"))
+
+testmu <- rstan::extract(clusmod_paramo1, "cluster_lmean")[[1]]
+testsigma <- rstan::extract(clusmod_paramo1, "lsigma_point")[[1]]
+testdraws <- sapply(1:nrow(testmu), function(x) rnorm(ncol(testmu), testmu[x,], testsigma[x]))
+bayesplot::ppc_dens_overlay(exp(paramodata$lcarbon_point), exp(t(testdraws)[1:100,which(!is.na(paramodata$lcarbon_point))]))
+
+testmu <- rstan::extract(clusmod_forest1, "cluster_lmean")[[1]]
+testsigma <- rstan::extract(clusmod_forest1, "lsigma_point")[[1]]
+testdraws <- sapply(1:nrow(testmu), function(x) rnorm(ncol(testmu), testmu[x,], testsigma[x]))
+bayesplot::ppc_dens_overlay(exp(forestdata$lcarbon_point), exp(t(testdraws)[1:100,which(!is.na(forestdata$lcarbon_point))]))
 
 cluscarb <- rstan::extract(clusmod_forest1,"carbon_cluster")[[1]]
-cluscarb2 <- rstan::extract(clusmod_forest2,"carbon_cluster")[[1]]
+cluscarb2 <- exp(rstan::extract(clusmod_forest2,"carbon_cluster")[[1]])
 
-plot(colMeans(cluscarb)[forestdata$cluster],exp(colMeans(cluscarb2)))
+plot(colMeans(cluscarb)[forestdata$cluster], colMeans(cluscarb2))
+abline(0,1)
+
+plot(colMeans(cluscarb), aggregate(exp(forestdata$lcarbon_point), list(forestdata$cluster), mean)[,2])
+plot(aggregate(colMeans(cluscarb2), list(forestdata$cluster), mean)[,2], aggregate(exp(forestdata$lcarbon_point), list(forestdata$cluster), mean)[,2])
+
+plot(colMeans(cluscarb) ~ forestdata$elevation)
+plot(aggregate(colMeans(cluscarb2), list(forestdata$cluster), mean)[,2] ~ forestdata$elevation)
 
 #################
 ## Save output ##
 #################
 AGBlist_clus <- list()
 AGBlist_clus$AGBdraws <- cbind(as.data.frame(rstan::extract(clusmod_forest1,"carbon_cluster")),as.data.frame(rstan::extract(clusmod_paramo1,"carbon_cluster")))
-AGBlist_clus$clusdata <- as.data.frame(AGBlist$plotdata %>% group_by(HabitatP,ClusNum) %>% summarise(AreaCode = first(AreaCode), Cluster = first(Cluster),
-                                                                                                         ClusNum = first(ClusNum), AreaNum = first(AreaNum),
+AGBlist_clus$clusdata <- as.data.frame(AGBlist$plotdata %>% group_by(HabitatP,ClusNum) %>% summarise(AreaCode = first(AreaCode), Cluster = first(Cluster), biogeo = first(biogeo),
+                                                                                                         ClusNum = first(ClusNum), AreaNum = first(AreaNum), bioNum = first(bioNum),
                                                                                                          lat = mean(lat), long = mean(long), Size = mean(Size), Habitat = first(HabitatP),
                                                                                                          nQuercus = sum(nQuercus), nSpec = sum(nSpec), ntree = sum(ntree), ncore = sum(ncore)))
 AGBlist_clus$plotdata <- AGBlist$plotdata
 
-saveRDS(AGBlist_clus, "Output//CarbDiv//AGBlist_clus2.RDS")
+saveRDS(AGBlist_clus, "Output//CarbDiv//AGBlist_clus.RDS")
 
 
 
+## For model type 2:
+fdraws <- apply(exp(rstan::extract(clusmod_forest2,"carbon_cluster")[[1]]), 1, function(x) aggregate(x, list(forestdata$cluster), mean)[,2])
+pdraws <- apply(exp(rstan::extract(clusmod_paramo2,"carbon_cluster")[[1]]), 1, function(x) aggregate(x, list(paramodata$cluster), mean)[,2])
 
-
+AGBlist_clus <- list()
+AGBlist_clus$AGBdraws <- cbind(t(fdraws),t(pdraws))
+AGBlist_clus$clusdata <- as.data.frame(AGBlist$plotdata %>% group_by(HabitatP,ClusNum) %>% summarise(AreaCode = first(AreaCode), Cluster = first(Cluster), biogeo = first(biogeo),
+                                                                                                     ClusNum = first(ClusNum), AreaNum = first(AreaNum), bioNum = first(bioNum),
+                                                                                                     lat = mean(lat), long = mean(long), Size = mean(Size), Habitat = first(HabitatP),
+                                                                                                     nQuercus = sum(nQuercus), nSpec = sum(nSpec), ntree = sum(ntree), ncore = sum(ncore)))
+AGBlist_clus$plotdata <- AGBlist$plotdata

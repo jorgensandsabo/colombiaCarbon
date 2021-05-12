@@ -13,7 +13,7 @@ library(ggplot2)
 ##########################
 ## Read and filter data ##
 ##########################
-AGBlist_clus <- readRDS("Output\\CarbDiv\\AGBlist_clus2.RDS")
+AGBlist_clus <- readRDS("Output\\CarbDiv\\AGBlist_clus.RDS")
 #AGBlist <- readRDS("Output\\CarbonDiversity\\AGBlist.RDS")
 
 #v5 <- cmdstanr::read_cmdstan_csv("occupancy_v5_threads-202012282018-1-261afe.csv")
@@ -29,10 +29,6 @@ z_info$species <- birds$species
 
 # Random species for test analyses
 #z_info <- dplyr::filter(z_info, z_info$species %in% sample(unique(z_info$species), 25))
-
-# Remove points
-#AGBlist <- lapply(AGBlist, function(x) x[which(x$SiteNum %in% subset(AGBlist$plotdata, Dataset != "Chocó")$SiteNum),])
-#AGBlist <- lapply(AGBlist, function(x) x[which(x$SiteNum %in% subset(AGBlist$plotdata, HabitatP != "Paramo")$SiteNum),])
 
 # Remove point without bird data
 AGBlist_clus$plotdata <- AGBlist_clus$plotdata[which(AGBlist_clus$plotdata$SiteCode %in% z_info$point),]

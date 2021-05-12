@@ -10,7 +10,8 @@ write("data{
               int<lower=1> n_trees;            // number of trees
               int<lower=1> n_cores;            // number of cores
               int<lower=1> n_spec;             // number of species
-              int<lower=1> n_area;             // number of areas      
+              int<lower=1> n_area;             // number of areas
+              int<lower=1> n_biogeo;           // number of biogeographic regions
               int<lower=1> n_cluster;          // number of clusters      
               int<lower=1> n_site;             // number of sites 
               vector[n_cores] WSG;             // measured WSG of cores
@@ -20,6 +21,7 @@ write("data{
               int site[n_trees];               // site for each tree
               int cluster_site[n_site];        // cluster at each site
               int area_cluster[n_cluster];     // area at each cluster
+              int biogeo_area[n_area];         // biogeographic region at each area
             }
             
             parameters{
@@ -27,27 +29,26 @@ write("data{
               real<lower=0> sigma1;             // sigma for identified trees
               real<lower=0> sigma2;             // sigma for non-identified trees
               real mu_spec;                     // mean of species effect
-              //vector [n_spec] b_spec;           // coefficient for species
-              vector [n_area] b_area;           // coefficient for area
-              //vector [n_cluster] b_cluster;     // coefficient for cluster
-              //vector [n_site] b_site;           // coefficient for site
-              real<lower=0> sigma_spec;         // sigma of species effect
+              vector [n_biogeo] b_biogeo;       // coefficient for biogeographic region effect
+              real<lower=0> sigma_spec;         // standard deviation of species effect
+              real<lower=0> sigma_biogeo;       // standard deviation for region effect
               real<lower=0> sigma_area;         // standard deviation for area effect
               real<lower=0> sigma_cluster;      // standard deviation for cluster effect
               real<lower=0> sigma_site;         // standard deviation for site effect
-              
               vector [n_site] sigma_site_raw;
               vector [n_cluster] sigma_cluster_raw;
+              vector [n_area] sigma_area_raw;
               vector [n_spec] sigma_spec_raw;
             }
             
             transformed parameters{
-              vector[n_cluster] b_cluster = b_area[area_cluster] + sigma_cluster * sigma_cluster_raw;
-              vector[n_site] b_site = b_cluster[cluster_site] + sigma_site * sigma_site_raw;
-              vector[n_spec] b_spec = mu_spec + sigma_spec * sigma_spec_raw;
+              vector[n_area] b_area = b_biogeo[biogeo_area] + sigma_area * sigma_area_raw;            // coefficient for area effect
+              vector[n_cluster] b_cluster = b_area[area_cluster] + sigma_cluster * sigma_cluster_raw; // coefficient for cluster effect
+              vector[n_site] b_site = b_cluster[cluster_site] + sigma_site * sigma_site_raw;          // coefficient for site effect
+              vector[n_spec] b_spec = mu_spec + sigma_spec * sigma_spec_raw;                          // coefficient for species effect
               
-              vector[n_trees] mu = alpha + b_spec[species] .* speciesid + b_site[site];
-              vector[n_trees] sigma = sigma1 * speciesid + sigma2 * fabs(1-speciesid);
+              vector[n_trees] mu = alpha + b_spec[species] .* speciesid + b_site[site];               // estimated mean wsg
+              vector[n_trees] sigma = sigma1 * speciesid + sigma2 * fabs(1-speciesid);                // estimated standard deviation
             }
             
             model{
@@ -58,20 +59,19 @@ write("data{
               
               mu_spec ~ normal(0, 0.25);
               sigma_spec ~ normal(0, 0.1);
-              //b_spec ~ normal(mu_spec, sigma_spec);
-
+              
+              sigma_biogeo ~ normal(0, 0.25);
               sigma_area ~ normal(0, 0.25);
               sigma_cluster ~ normal(0, 0.25);
               sigma_site ~ normal(0, 0.25);
-              b_area ~ normal(0, sigma_area);
+              b_biogeo ~ normal(0, sigma_biogeo);
               
+              sigma_area_raw ~ std_normal();
               sigma_cluster_raw ~ std_normal();
               sigma_site_raw ~ std_normal();
               sigma_spec_raw ~ std_normal();
               
               // likelihood
-              //b_cluster ~ normal(b_area[area_cluster], sigma_cluster);
-              //b_site ~ normal(b_cluster[cluster_site], sigma_site);
               WSG ~ normal(mu[core_treenum], sigma[core_treenum]);
             }
       ", file = "STAN\\carbdiv_wsgtreemodel.stan")
@@ -81,45 +81,34 @@ write("data{
               int<lower=1> n_site;             // number of sites
               int<lower=1> n_grass;            // number of grass samples
               int<lower=1> n_habitat;          // number of habitats
-              int<lower=1> n_area;             // number of areas
-              int<lower=1> n_cluster;
+              int<lower=1> n_cluster;          // number of clusters
               vector[n_grass] grass;           // measured grass AGB
               int habitat[n_site];             // habitat for each grass sample
               int grass_sitenum[n_grass];      // sitenum for each grass sample
-              int area_cluster[n_cluster];     // area at each cluster
-              int cluster[n_site];
+              int cluster[n_site];             // cluster for each site
+              int hab_cluster[n_cluster];      // habitat for each cluster
             }
             
             parameters{
-              vector [n_habitat] alpha;         // intercept by habitat
-              vector [n_habitat] sigma_hab;     // standard deviation by habitat
-              //vector [n_area] b_area;           // coefficient for area
-              //vector [n_cluster] b_cluster;
-              real<lower=0> sigma_area;
-              real<lower=0> sigma_cluster;
-              
-              vector [n_area] sigma_area_raw;
-              vector [n_cluster] sigma_cluster_raw;
+              vector[n_habitat] alpha_hab;         // intercept by habitat
+              vector[n_habitat] sigma_hab;         // standard deviation by habitat
+              vector[n_habitat] sigma_cluster_hab; // standard deviation of cluster effect by habitat
+              vector[n_cluster] alpha_clus;        // intercept by cluster within habitat
             }
             
             transformed parameters{
-              vector[n_area] b_area = sigma_area * sigma_area_raw;
-              vector[n_cluster] b_cluster = b_area[area_cluster] + sigma_cluster * sigma_cluster_raw;
-              vector[n_site] mu = alpha[habitat] + b_cluster[cluster];
-              vector[n_site] sigma = sigma_hab[habitat];
+              vector[n_cluster] sigma_cluster = sigma_cluster_hab[hab_cluster];  // standard deviation of cluster
+              vector[n_site] mu = alpha_clus[cluster];                           // mean of site biomass within cluster
+              vector[n_site] sigma = sigma_hab[habitat];                         // standard deviation of site biomass within habitat
             }
             
             model{
               // priors
-              alpha ~ normal(0, 30);
+              alpha_hab ~ normal(0,30);
               sigma_hab ~ normal(0, 10);
-              sigma_area ~ normal(0, 10);
-              sigma_cluster ~ normal(0, 10);
-              //b_area ~ normal(0, sigma_area);
-              //b_cluster ~ normal(b_area[area_cluster], sigma_cluster);
+              sigma_cluster_hab ~ normal(0, 10);
+              alpha_clus ~ normal(alpha_hab[hab_cluster], sigma_cluster);
               
-              sigma_cluster_raw ~ std_normal();
-              sigma_area_raw ~ std_normal();
               // likelihood
               grass ~ normal(mu[grass_sitenum], sigma[grass_sitenum]);
             }
