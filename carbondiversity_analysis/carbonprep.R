@@ -360,9 +360,14 @@ clusmod_paramo1 <- rstan::stan(file = "STAN\\carbdiv_clus_paramo1.stan", data = 
 clusmod_forest2 <- rstan::stan(file = "STAN\\carbdiv_clus_forest2.stan", data = forestdata, chains = 3, iter = 5000)
 clusmod_paramo2 <- rstan::stan(file = "STAN\\carbdiv_clus_paramo2.stan", data = paramodata, chains = 3, iter = 5000)
 
+
+clusmod_forest_linsd <- clusmod_forest1
+plot(colMeans(rstan::extract(clusmod_forest_linsd, "cluster_mean")[[1]]), colMeans(rstan::extract(clusmod_forest_linsd,"sigma_cluster")[[1]]))
+plot(colMeans(rstan::extract(clusmod_forest_linsd, "cluster_mean")[[1]]), forestdata$elevation)
+
 ## CHECKS TEMP
 pairs(clusmod_paramo1, pars=c("lp__","alpha","sigma_cluster","sigma_c_raw[1]","lsigma_point","beta_elev","carbon_cluster[1]"))
-pairs(clusmod_forest1, pars=c("alpha","sigma_cluster_zero","powvar","cluster_mean[1]","lsigma_small","lsigma_offset","sigma_area","beta_elev","carbon_cluster[1]"))
+pairs(clusmod_forest1, pars=c("alpha","cluster_mean[1]","lsigma_small","lsigma_offset","sigma_area","beta_elev","carbon_cluster[1]","sigma_cluster[1]","powvar","sigma_cluster_zero"))
 pairs(clusmod_paramo2, pars=c("lp__","alpha","lsigma_point","beta_elev"))
 pairs(clusmod_forest2, pars=c("alpha","lsigma_small","lsigma_offset","sigma_area","beta_elev","carbon_cluster[1]"))
 
