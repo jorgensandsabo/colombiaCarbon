@@ -134,7 +134,7 @@ mod <- "data{
               div ~ normal(cluster_mean, sigma_cluster);
             }"
 
-testmod_div <- rstan::stan(model_code = mod, data = moddat$richness, chains = 3, iter = 5000)
+testmod_div <- rstan::stan(model_code = mod, data = moddat$richness, chains = 3, iter = 2000)
 
 pairs(testmod_div, pars=c("lp__","alpha","beta_carbon","sigma_cluster"))
 
