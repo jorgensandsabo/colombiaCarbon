@@ -11,17 +11,17 @@ write("data{
               int<lower=1> n_cores;            // number of cores
               int<lower=1> n_spec;             // number of species
               int<lower=1> n_area;             // number of areas
-              int<lower=1> n_biogeo;           // number of biogeographic regions
+              //int<lower=1> n_biogeo;           // number of biogeographic regions
               int<lower=1> n_cluster;          // number of clusters      
               int<lower=1> n_site;             // number of sites 
               vector[n_cores] WSG;             // measured WSG of cores
               int core_treenum[n_cores];       // treenumber for each core
               int species[n_trees];            // species number for each tree
-              vector [n_trees] speciesid;      // tree identified?
+              vector[n_trees] speciesid;       // tree identified?
               int site[n_trees];               // site for each tree
               int cluster_site[n_site];        // cluster at each site
               int area_cluster[n_cluster];     // area at each cluster
-              int biogeo_area[n_area];         // biogeographic region at each area
+              //int biogeo_area[n_area];       // biogeographic region at each area
             }
             
             parameters{
@@ -29,20 +29,21 @@ write("data{
               real<lower=0> sigma1;             // sigma for identified trees
               real<lower=0> sigma2;             // sigma for non-identified trees
               real mu_spec;                     // mean of species effect
-              vector [n_biogeo] b_biogeo;       // coefficient for biogeographic region effect
+              //vector [n_biogeo] b_biogeo;     // coefficient for biogeographic region effect
+              vector [n_area] b_area;           // coefficient for area effect
               real<lower=0> sigma_spec;         // standard deviation of species effect
-              real<lower=0> sigma_biogeo;       // standard deviation for region effect
+              //real<lower=0> sigma_biogeo;     // standard deviation for region effect
               real<lower=0> sigma_area;         // standard deviation for area effect
               real<lower=0> sigma_cluster;      // standard deviation for cluster effect
               real<lower=0> sigma_site;         // standard deviation for site effect
-              vector [n_site] sigma_site_raw;
-              vector [n_cluster] sigma_cluster_raw;
-              vector [n_area] sigma_area_raw;
-              vector [n_spec] sigma_spec_raw;
+              vector[n_site] sigma_site_raw;
+              vector[n_cluster] sigma_cluster_raw;
+              //vector[n_area] sigma_area_raw;
+              vector[n_spec] sigma_spec_raw;
             }
             
             transformed parameters{
-              vector[n_area] b_area = b_biogeo[biogeo_area] + sigma_area * sigma_area_raw;            // coefficient for area effect
+              //vector[n_area] b_area = b_biogeo[biogeo_area] + sigma_area * sigma_area_raw;            // coefficient for area effect
               vector[n_cluster] b_cluster = b_area[area_cluster] + sigma_cluster * sigma_cluster_raw; // coefficient for cluster effect
               vector[n_site] b_site = b_cluster[cluster_site] + sigma_site * sigma_site_raw;          // coefficient for site effect
               vector[n_spec] b_spec = mu_spec + sigma_spec * sigma_spec_raw;                          // coefficient for species effect
@@ -60,13 +61,14 @@ write("data{
               mu_spec ~ normal(0, 0.25);
               sigma_spec ~ normal(0, 0.1);
               
-              sigma_biogeo ~ normal(0, 0.25);
+              //sigma_biogeo ~ normal(0, 0.25);
               sigma_area ~ normal(0, 0.25);
               sigma_cluster ~ normal(0, 0.25);
               sigma_site ~ normal(0, 0.25);
-              b_biogeo ~ normal(0, sigma_biogeo);
+              //b_biogeo ~ normal(0, sigma_biogeo);
+              b_area ~ normal(0, sigma_area);
               
-              sigma_area_raw ~ std_normal();
+              //sigma_area_raw ~ std_normal();
               sigma_cluster_raw ~ std_normal();
               sigma_site_raw ~ std_normal();
               sigma_spec_raw ~ std_normal();
@@ -131,6 +133,7 @@ write("data{
               real<lower=0> alpha;                        // global intercept
               vector<lower=0>[n_area] alpha_area;         // intercept by area
               vector[n_pred] beta;                        // coefficient for each predictor
+              //real<lower=0> sigma_cluster_mean;
               real<lower=0> sigma_cluster;                // between-cluster sd
               real<lower=0> sigma_area;                   // standard deviation of area effect
               real<lower=0> lsigma_small;                 // between-point sd for small plots
@@ -141,7 +144,7 @@ write("data{
             transformed parameters{
               vector[n_cluster] cluster_mean = alpha_area[area_cluster] + predictor * beta;
               vector[n_point] lsigma_point = lsigma_small * plotsize + lsigma_small * lsigma_offset * (1 - plotsize);
-              vector[n_point] cluster_lmean = log(carbon_cluster[cluster]) - (lsigma_point ^ 2)/2; // mean of the logarithm of point-level carbon stocks at the cluster scale
+              vector[n_point] cluster_lmean = log(carbon_cluster[cluster]) - (lsigma_point .^ 2)/2; // mean of the logarithm of point-level carbon stocks at the cluster scale
             }
             
             model{
@@ -149,7 +152,8 @@ write("data{
               alpha ~ normal(200,50);
               sigma_area ~ normal(0,50);
               beta ~ normal(0,10);
-              sigma_cluster ~ normal(0,20);
+              //sigma_cluster_mean ~ normal(0,50);
+              sigma_cluster ~ normal(0,50);
               lsigma_small ~ normal(0,1);
               lsigma_offset ~ normal(0,0.5);
               // likelihood
@@ -185,15 +189,14 @@ write("data{
             transformed parameters{
               vector[n_area] alpha_area = alpha + sigma_area * sigma_area_raw;
               vector[n_cluster] cluster_mean = alpha_area[area_cluster] + predictor * beta;
-              //vector[n_cluster] cluster_mean = alpha + predictor * beta;
               vector[n_cluster] carbon_cluster = cluster_mean + sigma_cluster * sigma_c_raw;
               vector[n_cluster] cluster_lmean = log(carbon_cluster) - (lsigma_point ^ 2)/2; // mean of the logarithm of point-level carbon stocks at the cluster scale
             }
             
             model{
               // priors
-              alpha ~ normal(0, 30);
-              sigma_area ~ normal(0, 20);
+              alpha ~ normal(0, 50);
+              sigma_area ~ normal(0, 50);
               sigma_area_raw ~ std_normal();
               beta ~ normal(0, 10);
               sigma_cluster ~ normal(0,20);
