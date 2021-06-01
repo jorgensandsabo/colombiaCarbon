@@ -113,12 +113,12 @@ write("data{
               real<lower=0> alpha;               // intercept
               //vector<lower=0>[n_area] alpha_area;// intercept for areas
               vector[n_pred] beta;               // coefficient for predictors
-              real<lower=0> sigma_area;          // standard deviation for areas
+              //real<lower=0> sigma_area;          // standard deviation for areas
               real<lower=0> sigma_cluster;       // between-cluster sd by habitat (should this grow with the mean?)
               real<lower=0> lsigma_point;        // between-point sd by habitat for large plots
               vector[n_cluster] sigma_c_raw;
               //vector<lower=0>[n_cluster] carbon_cluster;
-              vector[n_area] sigma_area_raw;
+              //vector[n_area] sigma_area_raw;
             }
             
             transformed parameters{
@@ -132,8 +132,8 @@ write("data{
             model{
               // priors
               alpha ~ normal(0, 30);
-              sigma_area ~ normal(0, 20);
-              sigma_area_raw ~ std_normal();
+              //sigma_area ~ normal(0, 20);
+              //sigma_area_raw ~ std_normal();
               beta ~ normal(0, 10);
               sigma_cluster ~ normal(0,20);
               sigma_c_raw ~ std_normal();
@@ -156,26 +156,25 @@ write("data{
             }
             
             parameters{
-              real<lower=0> alpha;               // intercept by habitat
+              real<lower=0> alpha;                 // intercept by habitat
               //vector<lower=0>[n_area] alpha_area;// intercept for areas
-              real<lower=0> sigma_area;          // standard deviation for areas
-              vector[n_pred] beta;               // coefficient for each predictor
-              real<lower=0> lsigma_point;        // between-plot sd
-              vector[n_area] sigma_area_raw;
+              //real<lower=0> sigma_area;          // standard deviation for areas
+              vector[n_pred] beta;                 // coefficient for each predictor
+              real<lower=0> lsigma_point;          // between-plot sd
+              //vector[n_area] sigma_area_raw;
             }
             
             transformed parameters{
-              //vector[n_point] cluster_lmean = alpha + beta_elev * elevation[cluster];
-              vector<lower=0>[n_area] alpha_area = alpha + sigma_area * sigma_area_raw;
-              vector[n_cluster] cluster_lmean = alpha_area[area_cluster] + predictor * beta;
+              //vector<lower=0>[n_area] alpha_area = alpha + sigma_area * sigma_area_raw;
+              vector[n_cluster] cluster_lmean = alpha + predictor * beta;
               vector[n_cluster] carbon_cluster = cluster_lmean + (lsigma_point ^ 2)/2;
             }
             
             model{
               // priors
               alpha ~ normal(0,5);
-              sigma_area ~ normal(0, 20);
-              sigma_area_raw ~ std_normal();
+              //sigma_area ~ normal(0, 20);
+              //sigma_area_raw ~ std_normal();
               lsigma_point ~ normal(0,5);
               beta ~ normal(0,5);
               // likelihood

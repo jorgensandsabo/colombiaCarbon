@@ -426,26 +426,26 @@ paramodata <- list(n_point = nrow(AGBlist_paramo$plotdata),                     
                    area_cluster = as.numeric(as.factor(AGBlist_paramo$plotdata %>% group_by(ClusNum) %>% summarise(area = first(AreaNum)) %>% pull(area))), # Area at each cluster
                    cluster = as.numeric(as.factor(AGBlist_paramo$plotdata[order(AGBlist_paramo$plotdata$SiteNum),]$ClusNum)))        # Cluster at each point
 
-clusmod_forest <- rstan::stan(file = "STAN\\carbdiv_clus_forest.stan", data = forestdata, chains = 3, iter = 5000, control = list(adapt_delta=0.99), cores = 3)
-clusmod_paramo <- rstan::stan(file = "STAN\\carbdiv_clus_paramo.stan", data = paramodata, chains = 3, iter = 5000, control = list(adapt_delta=0.99), cores = 3)
+clusmod_forest <- rstan::stan(file = "STAN\\carbdiv_clus_forest.stan", data = forestdata, chains = 3, iter = 5000, control = list(adapt_delta = 0.99), cores = 3)
+clusmod_paramo <- rstan::stan(file = "STAN\\carbdiv_clus_paramo.stan", data = paramodata, chains = 3, iter = 5000, control = list(adapt_delta = 0.99), cores = 3)
   # 6+ divergent transitions after warmup
 
-clusmod_forest2 <- rstan::stan(file = "STAN\\carbdiv_clus_forest2.stan", data = forestdata, chains = 3, iter = 5000, control = list(adapt_delta=0.99), cores = 3)
-clusmod_paramo2 <- rstan::stan(file = "STAN\\carbdiv_clus_paramo2.stan", data = paramodata, chains = 3, iter = 5000, control = list(adapt_delta=0.99), cores = 3)
+clusmod_forest2 <- rstan::stan(file = "STAN\\carbdiv_clus_forest2.stan", data = forestdata, chains = 3, iter = 5000, control = list(adapt_delta = 0.99), cores = 3)
+clusmod_paramo2 <- rstan::stan(file = "STAN\\carbdiv_clus_paramo2.stan", data = paramodata, chains = 3, iter = 5000, control = list(adapt_delta = 0.99), cores = 3)
 
-pairs(clusmod_forest, pars = c("alpha","lsigma_point","sigma_area","sigma_cluster","cluster_mean[1]","carbon_cluster[1]","beta"))
-pairs(clusmod_paramo, pars = c("alpha","cluster_mean[1]","lsigma_point","sigma_area","sigma_area_raw[1]","alpha_area[1]","beta[1]","carbon_cluster[1]","sigma_cluster","sigma_c_raw[1]"))
+pairs(clusmod_forest, pars = c("alpha","alpha_area[1]","lsigma_point","sigma_area","sigma_cluster","cluster_mean[1]","cluster_lmean[1]","carbon_cluster[1]","beta"))
+pairs(clusmod_forest2, pars = c("alpha","alpha_area[1]","lsigma_point","sigma_area","cluster_lmean[1]","carbon_cluster[1]","beta"))
 
-pairs(clusmod_forest2, pars = c("alpha","alpha_area[1]","alpha_cluster[1]","lsigma_small","lsigma_offset","sigma_area","sigma_cluster","a","b","cluster_lmean[1]","carbon_cluster[1]"))
-pairs(clusmod_paramo2, pars = c("alpha","alpha_cluster[1]","lsigma_small","lsigma_offset","sigma_cluster","cluster_lmean[1]","carbon_cluster[1]"))
+pairs(clusmod_paramo, pars = c("alpha","lsigma_point","sigma_cluster","cluster_mean[1]","sigma_c_raw[1]","cluster_lmean[1]","carbon_cluster[1]","beta"))
+pairs(clusmod_paramo2, pars = c("alpha","lsigma_point","cluster_lmean[1]","carbon_cluster[1]","beta"))
 
 # Extract AGB estimates - forest model
 AGBmu_forest <- rstan::extract(clusmod_forest,"cluster_lmean")[[1]]
 AGBsigma_forest <- rstan::extract(clusmod_forest,"lsigma_point")[[1]]
-AGBpoint_forest <-  sapply(1:nrow(AGBmu_forest), function(x) rnorm(ncol(AGBmu_forest), AGBmu_forest[x,], AGBsigma_forest[x,]))
+AGBpoint_forest <-  sapply(1:nrow(AGBmu_forest), function(x) rnorm(ncol(AGBmu_forest), AGBmu_forest[x,], AGBsigma_forest[x]))
 R2 <- bayes_R2_res(y = t(AGBpoint_forest), ypred = AGBmu_forest)
 rmse <- sqrt(rowMeans((AGBpoint_forest - forestdata$lcarbon_point)^2))
-postest_clusmodforest <- rstan::summary(clusmod_forest, pars = c("alpha","beta","lsigma_small","lsigma_offset","sigma_area","sigma_cluster"))$summary[,c("mean","2.5%","97.5%")]
+postest_clusmodforest <- rstan::summary(clusmod_forest, pars = c("alpha","beta","lsigma_point","sigma_area","sigma_cluster"))$summary[,c("mean","2.5%","97.5%")]
 postest_clusmodforest <- rbind(data.frame(postest_clusmodforest),
                                "RMSE" = data.frame("mean" = mean(rmse), "2.5%" = sort(rmse)[length(rmse)*0.025], "97.5%" = sort(rmse)[length(rmse)*0.975]),
                                "R2" = data.frame("mean" = mean(R2), "2.5%" = sort(R2)[length(R2)*0.025], "97.5%" = sort(R2)[length(R2)*0.975]))
@@ -456,10 +456,10 @@ par(mfrow = c(2,2))
 e_plot_forest <- forestdata$lcarbon_point - t(AGBmu_forest)[forestdata$cluster,]
 plot(rowMeans(e_plot_forest) ~ rowMeans(t(AGBmu_forest)[forestdata$cluster,]),
      xlab = "Estimated expected point carbon", ylab = "Observed minus expected point carbon") ; abline(h = 0)
-e_clus_forest <- aggregate(exp(forestdata$lcarbon_point), list(forestdata$cluster), mean)[,2] - t(exp(rstan::extract(clusmod_forest, "cluster_lmean")[[1]]))
-plot(rowMeans(e_clus_forest) ~ colMeans(exp(rstan::extract(clusmod_forest, "cluster_lmean")[[1]])), 
-     xlab = "Estimated expected cluster carbon", ylab = "Observed minus expected cluster carbon") ; abline(h = 0)
 
+# e_clus_forest <- aggregate(exp(forestdata$lcarbon_point), list(forestdata$cluster), mean)[,2] - t(exp(rstan::extract(clusmod_forest, "cluster_lmean")[[1]]))
+# plot(rowMeans(e_clus_forest) ~ colMeans(exp(rstan::extract(clusmod_forest, "cluster_lmean")[[1]])), 
+#      xlab = "Estimated expected cluster carbon", ylab = "Observed minus expected cluster carbon") ; abline(h = 0)
 e_clus_forest <- aggregate(exp(forestdata$lcarbon_point), list(forestdata$cluster), mean)[,2] -  aggregate(rowMeans(t(exp(rstan::extract(clusmod_forest, "cluster_lmean")[[1]]))), list(forestdata$cluster), mean)[,2]
 plot(e_clus_forest ~ aggregate(rowMeans(t(exp(rstan::extract(clusmod_forest, "cluster_lmean")[[1]]))), list(forestdata$cluster), mean)[,2], 
      xlab = "Estimated expected cluster carbon", ylab = "Observed minus expected cluster carbon") ; abline(h = 0)
@@ -580,7 +580,8 @@ AGBlist_clus$clusdata <- as.data.frame(AGBlist$plotdata %>% group_by(HabitatP,Cl
                                                                                                      ClusNum = first(ClusNum), AreaNum = first(AreaNum), bioNum = first(bioNum),
                                                                                                      lat = mean(lat), long = mean(long), Size = mean(Size), Habitat = first(HabitatP),
                                                                                                      nQuercus = sum(nQuercus), nSpec = sum(nSpec), ntree = sum(ntree), ncore = sum(ncore),
-                                                                                                     meanAGB = mean(meanAGB)))
+                                                                                                     meanAGB = mean(meanAGB),
+                                                                                                     ALOSelev = mean(ALOSelev), TotPrec = mean(TotPrec), TempVar = mean(TempVar), PrecVar = mean(PrecVar)))
 AGBlist_clus$plotdata <- AGBlist$plotdata
 
 saveRDS(AGBlist_clus, "Output//CarbDiv//AGBlist_clus.RDS")
