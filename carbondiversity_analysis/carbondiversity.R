@@ -30,26 +30,31 @@ z_info$species <- birds$species
 # Random species for test analyses
 #z_info <- dplyr::filter(z_info, z_info$species %in% sample(unique(z_info$species), 25))
 
+# Remove points
+#AGBlist_clus$plotdata <- dplyr::filter(AGBlist_clus$plotdata, biogeo!= "West Andes")
+#AGBlist_clus$plotdata <- dplyr::filter(AGBlist_clus$plotdata, HabitatP != "Paramo" & AreaCode != "TU")
+
 # Remove point without bird data
 AGBlist_clus$plotdata <- AGBlist_clus$plotdata[which(AGBlist_clus$plotdata$SiteCode %in% z_info$point),]
 AGBlist_clus$AGBdraws <- AGBlist_clus$AGBdraws[which(AGBlist_clus$AGBdraws$ClusNum %in% unique(AGBlist_clus$plotdata$ClusNum)),]
 AGBlist_clus$clusdata <- AGBlist_clus$clusdata[which(AGBlist_clus$clusdata$ClusNum %in% unique(AGBlist_clus$plotdata$ClusNum)),]
 
-# # Add biogeography
-# biogeo <- as.data.frame(AGBlist_clus$plotdata %>% group_by(AreaCode) %>% summarise(region = first(region)))
-# biogeo <- biogeo %>% mutate(biogeo = case_when(
-#           region == "central" ~ "Central Andes",
-#           region == "central-eastern" ~ "Central Andes",
-#           region == "santa_marta" ~ "Santa Marta",
-#           region == "amazonia" ~ "Amazonia",
-#           region == "oriental eastern slope" ~ "East Andes",
-#           region == "oriental western slope" ~ "East Andes",
-#           region == "occidental" ~ "West Andes"))
-# biogeo <- biogeo %>% mutate(biogeo = case_when(
-#           AreaCode == "EP" ~ "Magdalena valley",
-#           AreaCode == "PP" ~ "Magdalena valley",
-#           TRUE ~ biogeo
-# ))
+# Changes to biogeography
+AGBlist_clus$clusdata  <- AGBlist_clus$clusdata %>%  mutate(biogeo = case_when(
+                                            AreaCode %in% c("AL","SM","SE","JU","CH","MO") ~ "East - east slope",
+                                            AreaCode %in% c("CQ","EP","TN","IG","GA","AT","TS","TA","VI","VC","BE","TU","SO","CC","RA","PP","HT") ~ "East - west slope",
+                                            # AreaCode == "RA" ~ "Magdalena valley",
+                                            # AreaCode == "HT" ~ "Magdalena valley",
+                                            # AreaCode == "AL" ~ "East slope",
+                                            # AreaCode == "SM" ~ "East slope",
+                                            # 
+                                            # 
+                                            # Cluster %in% c("BE1","BE2","BE3","BE4","BE5","BE6","BE7","CH1","CH2","CH3","CH4","CH5","CH6","CH7","CH8","CH9","IG8",
+                                            #                "TU1","TU2","TU3","TU4","TU5","TU6","TU7") ~ "East paramo",
+                                            # Cluster %in% c("PN1","PU2") ~ "Central paramo",
+                                            TRUE ~ biogeo))
+AGBlist_clus$plotdata$biogeo <- NULL
+AGBlist_clus$plotdata <- left_join(AGBlist_clus$plotdata, AGBlist_clus$clusdata %>% group_by(AreaCode) %>% summarise(biogeo = first(biogeo)))
 
 # AGBlist_clus$plotdata <- left_join(AGBlist_clus$plotdata, biogeo[,c("AreaCode","biogeo")])
 # AGBlist_clus$clusdata <- left_join(AGBlist_clus$clusdata, biogeo[,c("AreaCode","biogeo")])
@@ -60,7 +65,6 @@ AGBlist_clus$clusdata <- AGBlist_clus$clusdata[which(AGBlist_clus$clusdata$ClusN
 # Additional bird data
 birdlife_extents <- read.csv("C:\\Users\\jorgesan\\OneDrive - Norwegian University of Life Sciences\\PhD\\Diversity_code_data\\birdlife_scraper\\birdlife_extents.csv")
 birdlife_extents <- birdlife_extents[which(!is.na(birdlife_extents$extent_breeding_resident)),]
-birdlife_extents$invrange <- 1/scale(birdlife_extents$extent_breeding_resident, center = F)
 birdlife_extents$X <- gsub("[ ]", "_", birdlife_extents$X)
 
 redlist_status <- read.csv("C:\\Users\\jorgesan\\OneDrive - Norwegian University of Life Sciences\\PhD\\Diversity_code_data\\birdlife_scraper\\redlist_status.csv")
@@ -69,180 +73,252 @@ redlist_status$X <- gsub("[ ]", "_", redlist_status$X)
 
 # Remove point without carbon data
 z_info <- dplyr::filter(z_info, point %in% AGBlist_clus$plotdata$SiteCode)
+#z_info_pasture <- z_info ; z_info_pasture$pasture <- 1
 
-# Draw bird data
+# Draw bird data - forest and equivalent pasture
 Zdraws <- get_specZ_draws_expand(10, draws, z_info, pointid = AGBlist_clus$plotdata[,c("SiteCode","SiteNum")])
+#Zdraws_pasture <- get_specZ_draws_expand(10, draws, z_info_pasture, pointid = AGBlist_clus$plotdata[,c("SiteCode","SiteNum")])
+
+# Filter out full migrants
+Zdraws <- dplyr::filter(Zdraws, species %in% dplyr::filter(birdlife_extents, (!migratory_status  %in% c("full migrant","unknown")))$X)
+#Zdraws_pasture <- dplyr::filter(Zdraws_pasture, species %in% dplyr::filter(birdlife_extents, (!migratory_status  %in% c("full migrant","unknown")))$X)
+
+# Weigh by pasture occurrence probability
+#pastureprob <- cbind(Zdraws_pasture[,c(1:2)], pastureprob = rowMeans(Zdraws_pasture[,-c(1:2)]))
+#Zdraws <- cbind(Zdraws[,c(1:2)],apply(Zdraws[,-c(1:2)], 2, function(x) x*(1-pastureprob$pastureprob)))
+
+# Point to cluster occurrence
 Zclus <- aggregate(Zdraws, list(Zdraws$species, left_join(Zdraws, AGBlist_clus$plotdata[,c("SiteNum","ClusNum")])$ClusNum), max)[,-c(1,3)]
 
 # Restricted-range species
-Zclus_rr <- dplyr::filter(Zclus, species %in% dplyr::filter(birdlife_extents, (!migratory_status  %in% c("full migrant","unknown")) & extent_breeding_resident < 50000)$X)
+Zclus_rr <- dplyr::filter(Zclus, species %in% dplyr::filter(birdlife_extents, extent_breeding_resident < 50000)$X)
 
 # Redlist status
-Zclus_endangered <- dplyr::filter(Zclus, species %in% filter(redlist_status, V1 %in% c("Critically Endangered","Endangered"))$X)
+Zclus_endangered <- dplyr::filter(Zclus, species %in% filter(redlist_status, V1 %in% c("Critically Endangered","Endangered","Vulnerable"))$X)
 
-# Inverse range weighted species richness
-Zclus_rangew <- dplyr::filter(Zclus, species %in% dplyr::filter(birdlife_extents, !migratory_status  %in% c("full migrant","unknown"))$X)
-invrange <- as.numeric(dplyr::left_join(Zclus_rangew, dplyr::filter(birdlife_extents, !migratory_status  %in% c("full migrant","unknown"))[,c("X","invrange")], by = c("species" = "X"))$invrange)
-Zclus_rangew[,3:12] <- Zclus_rangew[,3:12] * invrange
+# Range weighted species richness
+extents <- dplyr::filter(birdlife_extents, !migratory_status  %in% c("full migrant","unknown"))[,c("X","extent_breeding_resident")]
+extents <- dplyr::filter(extents, X %in% Zclus$species)
+extents$extent_breeding_resident[which(extents$extent_breeding_resident > 10^7.5)] <- 10^7.5
+Zclus_rangew <- cbind(Zclus[,c(1:2)],Zclus[,-c(1:2)] * (1 - (extents$extent_breeding_resident / max(extents$extent_breeding_resident))))
 
 ###########################
 ## Draw alpha model data ##
 ###########################
-AGBlist_clus_temp <- AGBlist_clus_temp
-Zclus_temp <- Zclus
-AGBlist_clus$clusdata <- AGBlist_clus$clusdata[which(!AGBlist_clus$clusdata$biogeo == "East Andes"),]
-AGBlist_clus$AGBdraws <- AGBlist_clus$AGBdraws[which(AGBlist_clus$AGBdraws$ClusNum %in% AGBlist_clus$clusdata$ClusNum),]
-Zclus <- Zclus[which(Zclus$Group.2 %in% AGBlist_clus$clusdata$ClusNum),]
-
 # Model data
 moddat <- list()
 moddat$richness <- list("n_cluster" = length(unique(Zclus[,1])),
+                        "n_area" = length(unique(AGBlist_clus$clusdata$AreaNum)),
                         "n_biogeo" = length(unique(AGBlist_clus$clusdata$biogeo)),
                         "niter" = dim(Zclus[,-c(1,2)])[2],
+                        "carbon_region" = aggregate(x = rowMeans(AGBlist_clus$AGBdraws[order(AGBlist_clus$AGBdraws$ClusNum),-1]), 
+                                                    by = list(as.numeric(as.factor(AGBlist_clus$clusdata[order(AGBlist_clus$clusdata$ClusNum),]$biogeo))),
+                                                    mean)$x,
                         "div" = rowMeans(apply(simplify2array(by(Zclus[,-c(1:2)], Zclus$species, as.matrix)),2,rowSums)), ### Sorted by cluster number
                         "carbon_cluster" = rowMeans(AGBlist_clus$AGBdraws[order(AGBlist_clus$AGBdraws$ClusNum),-1]),
-                        "biogeo" = as.numeric(as.factor(AGBlist_clus$clusdata[order(AGBlist_clus$clusdata$ClusNum),]$biogeo)))
+                        "biogeo" = as.numeric(as.factor(AGBlist_clus$clusdata[order(AGBlist_clus$clusdata$ClusNum),]$biogeo)),
+                        "area" = as.numeric(as.factor(AGBlist_clus$clusdata[order(AGBlist_clus$clusdata$ClusNum),]$AreaNum)),
+                        "biogeo_area" = as.numeric(as.factor(AGBlist_clus$clusdata %>% group_by(AreaNum) %>% summarise(reg = first(bioNum)) %>% pull(reg))))
 moddat$ranger <- list("n_cluster" = length(unique(Zclus_rr[,1])),
+                      "n_area" = length(unique(AGBlist_clus$clusdata$AreaNum)),
                       "n_biogeo" = length(unique(AGBlist_clus$clusdata$biogeo)),
                       "niter" = dim(Zclus_rr[,-c(1,2)])[2],
                       "div" = rowMeans(apply(simplify2array(by(Zclus_rr[,-c(1:2)], Zclus_rr$species, as.matrix)),2,rowSums)), ### Sorted by cluster number
-                      "carbon_cluster" = colMeans(AGBlist_clus$AGBdraws),
-                      "biogeo" = as.numeric(as.factor(AGBlist_clus$clusdata$biogeo)))
+                      "carbon_cluster" = rowMeans(AGBlist_clus$AGBdraws[order(AGBlist_clus$AGBdraws$ClusNum),-1]),
+                      "biogeo" = as.numeric(as.factor(AGBlist_clus$clusdata[order(AGBlist_clus$clusdata$ClusNum),]$biogeo)),
+                      "area" = as.numeric(as.factor(AGBlist_clus$clusdata[order(AGBlist_clus$clusdata$ClusNum),]$AreaNum)),
+                      "biogeo_area" = as.numeric(as.factor(AGBlist_clus$clusdata %>% group_by(AreaNum) %>% summarise(reg = first(bioNum)) %>% pull(reg))))
 moddat$endangered <- list("n_cluster" = length(unique(Zclus_endangered[,1])),
                           "n_biogeo" = length(unique(AGBlist_clus$clusdata$biogeo)),
+                          "n_area" = length(unique(AGBlist_clus$clusdata$AreaNum)),
                           "niter" = dim(Zclus_endangered[,-c(1,2)])[2],
                           "div" = rowMeans(apply(simplify2array(by(Zclus_endangered[,-c(1:2)], Zclus_endangered$species, as.matrix)),2,rowSums)), ### Sorted by cluster number
-                          "carbon_cluster" = colMeans(AGBlist_clus$AGBdraws),
-                          "biogeo" = as.numeric(as.factor(AGBlist_clus$clusdata$biogeo)))
+                          "carbon_cluster" = rowMeans(AGBlist_clus$AGBdraws[order(AGBlist_clus$AGBdraws$ClusNum),-1]),
+                          "biogeo" = as.numeric(as.factor(AGBlist_clus$clusdata[order(AGBlist_clus$clusdata$ClusNum),]$biogeo)),
+                          "area" = as.numeric(as.factor(AGBlist_clus$clusdata[order(AGBlist_clus$clusdata$ClusNum),]$AreaNum)),
+                          "biogeo_area" = as.numeric(as.factor(AGBlist_clus$clusdata %>% group_by(AreaNum) %>% summarise(reg = first(bioNum)) %>% pull(reg))))
+moddat$rangew <- list("n_cluster" = length(unique(Zclus_rangew[,1])),
+                          "n_biogeo" = length(unique(AGBlist_clus$clusdata$biogeo)),
+                          "n_area" = length(unique(AGBlist_clus$clusdata$AreaNum)),
+                          "niter" = dim(Zclus_rangew[,-c(1,2)])[2],
+                          "div" = rowMeans(apply(simplify2array(by(Zclus_rangew[,-c(1:2)], Zclus_rangew$species, as.matrix)),2,rowSums)), ### Sorted by cluster number
+                          "carbon_cluster" = rowMeans(AGBlist_clus$AGBdraws[order(AGBlist_clus$AGBdraws$ClusNum),-1]),
+                          "biogeo" = as.numeric(as.factor(AGBlist_clus$clusdata[order(AGBlist_clus$clusdata$ClusNum),]$biogeo)),
+                          "area" = as.numeric(as.factor(AGBlist_clus$clusdata[order(AGBlist_clus$clusdata$ClusNum),]$AreaNum)),
+                          "biogeo_area" = as.numeric(as.factor(AGBlist_clus$clusdata %>% group_by(AreaNum) %>% summarise(reg = first(bioNum)) %>% pull(reg))))
 
-### MODEL 1
-mod <- "data{
-              int<lower=1> n_cluster;            // number of clusters
-              vector[n_cluster] carbon_cluster;  // carbon at each cluster
-              vector[n_cluster] div;             // diversity metric at each cluster
-              //int<lower=1> biogeo[n_cluster];  // biogeographic region of each cluster
-              //int<lower=1> n_biogeo;           // number of biogeographic regions
-            }
-            
-            parameters{
-              real alpha;
-              real<lower=0> sigma_cluster;
-              real beta_carbon;
-              real beta2;
-            }
-            
-            transformed parameters{
-              vector[n_cluster] cluster_mean = alpha + beta_carbon * carbon_cluster + beta2 * (carbon_cluster .^ 2);
-            }
-            
-            model{
-              // priors
-              alpha ~ normal(0, 50);
-              beta_carbon ~ normal(0, 10);
-              beta2 ~ normal(0, 10);
-              sigma_cluster ~ normal(0,20);
-              // likelihood
-              div ~ normal(cluster_mean, sigma_cluster);
-            }"
+## Linmod
+linmod_div <- rstan::stan(model_code = linmod, data = moddat$richness, chains = 3, iter = 5000)
 
-testmod_div <- rstan::stan(model_code = mod, data = moddat$richness, chains = 3, iter = 2000)
+post_lin <- rstan::extract(linmod_div)
 
-pairs(testmod_div, pars=c("alpha","beta_carbon","beta2","sigma_cluster"))
+seqlist <- lapply(as.list(sort(unique(moddat$richness$biogeo))), function(x) seq(min(moddat$richness$carbon_cluster[which(moddat$richness$biogeo == x)]),max(moddat$richness$carbon_cluster[which(moddat$richness$biogeo == x)]),0.01))
 
-test <- t(matrix(rep(rstan::extract(testmod_div, "alpha")[[1]], length(moddat$richness$carbon_cluster)), ncol = length(moddat$richness$carbon_cluster))) + 
-  t(matrix(rep(rstan::extract(testmod_div,"beta_carbon")[[1]], length(moddat$richness$carbon_cluster)), ncol = length(moddat$richness$carbon_cluster))) * moddat$richness$carbon_cluster + 
-  t(matrix(rep(rstan::extract(testmod_div,"beta2")[[1]], length(moddat$richness$carbon_cluster)), ncol = length(moddat$richness$carbon_cluster))) * moddat$richness$carbon_cluster ^ 2
+clusmean <- list()
+for(i in 1:length(seqlist)){
+  clusmean_reg <- matrix(nrow = length(post_lin$alpha), ncol = length(seqlist[[i]]))
+  for(j in 1:length(seqlist[[i]])){
+    for(k in 1:length(post_lin$alpha)){
+      clusmean_reg[k,j] <- post_lin$alpha_reg[k,i] + post_lin$beta1[k,i] * seqlist[[i]][j]
+    }
+  }
+  clusmean[[i]] <- clusmean_reg
+}
+
+globseq <- seq(min(moddat$richness$carbon_cluster),max(moddat$richness$carbon_cluster),1)
+clusmean_glob <- matrix(nrow = length(post_lin$alpha), ncol = length(globseq))
+b1 <- rowMeans(post_lin$beta_reg)
+for(j in 1:length(globseq)){
+  for(k in 1:length(post_lin$alpha)){
+    clusmean_glob[k,j] <- post_lin$alpha[k] + b1[k] * globseq[j]
+  }
+}
+
+plot(moddat$richness$div ~ moddat$richness$carbon_cluster, col = as.numeric(as.factor(AGBlist_clus$plotdata %>% group_by(ClusNum) %>% summarise(elev = first(HabitatP)) %>% pull(elev))), pch = 16)
+plot(moddat$richness$div ~ moddat$richness$carbon_cluster, col = moddat$richness$biogeo, pch = 16); title("Richness")
+plot(moddat$rangew$div ~ moddat$rangew$carbon_cluster, col = moddat$rangew$biogeo, pch = 16); title("Range-weighted")
+plot(moddat$endangered$div ~ moddat$endangered$carbon_cluster, col = moddat$endangered$biogeo, pch = 16); title("endangered")
+plot(moddat$ranger$div ~ moddat$ranger$carbon_cluster, col = moddat$ranger$biogeo, pch = 16); title("range-restricted")
+
+lines(colMeans(clusmean_glob) ~ globseq)
+for(i in 1:length(clusmean)){
+  lines(colMeans(clusmean[[i]]) ~ seqlist[[i]], col = i)
+}
+legend(x = 15, legend = levels(as.factor(AGBlist_clus$clusdata[order(AGBlist_clus$clusdata$ClusNum),]$biogeo)), fill = c(1:length(moddat$richness$biogeo)))
+
+text(moddat$richness$carbon_cluster, moddat$richness$div , labels = AGBlist_clus$clusdata[order(AGBlist_clus$clusdata$ClusNum),]$AreaCode)
+
+### POLYMOD
+polymod_div <- rstan::stan(model_code = polymod, data = moddat$richness, chains = 3, iter = 5000)
+
+pairs(polymod_div, pars=c("alpha","beta1","beta2","sigma_cluster","cluster_mean[1]"))
+
+test <- t(matrix(rep(rstan::extract(polymod_div, "alpha")[[1]], length(moddat$richness$carbon_cluster)), ncol = length(moddat$richness$carbon_cluster))) + 
+  t(matrix(rep(rstan::extract(polymod_div,"beta1")[[1]], length(moddat$richness$carbon_cluster)), ncol = length(moddat$richness$carbon_cluster))) * moddat$richness$carbon_cluster + 
+  t(matrix(rep(rstan::extract(polymod_div,"beta2")[[1]], length(moddat$richness$carbon_cluster)), ncol = length(moddat$richness$carbon_cluster))) * moddat$richness$carbon_cluster ^ 2
+
+test <- t(rstan::extract(polymod_div, "alpha")[[1]][,moddat$richness$biogeo]) + 
+  t(rstan::extract(polymod_div, "beta1")[[1]][,moddat$richness$biogeo]) * moddat$richness$carbon_cluster + 
+  t(rstan::extract(polymod_div, "beta2")[[1]][,moddat$richness$biogeo]) * (moddat$richness$carbon_cluster ^ 2) 
 plot(moddat$richness$div ~ moddat$richness$carbon_cluster, col = moddat$richness$biogeo, pch = 16) ; points(rowMeans(test) ~ moddat$richness$carbon_cluster)
 
-plot(moddat$richness$div ~ AGBlist_clus$clusdata$meanAGB[order(AGBlist_clus$clusdata$ClusNum)], col = moddat$richness$biogeo, pch = 16) ; points(rowMeans(test) ~ moddat$richness$carbon_cluster)
+post_poly <- rstan::extract(polymod_div)
+
+seqlist <- lapply(as.list(sort(unique(moddat$richness$biogeo))), function(x) seq(min(moddat$richness$carbon_cluster[which(moddat$richness$biogeo == x)]),max(moddat$richness$carbon_cluster[which(moddat$richness$biogeo == x)]),1))
+
+clusmean <- list()
+for(i in 1:length(seqlist)){
+  clusmean_reg <- matrix(nrow = length(post_poly$alpha), ncol = length(seqlist[[i]]))
+  for(j in 1:length(seqlist[[i]])){
+    for(k in 1:length(post_poly$alpha)){
+      clusmean_reg[k,j] <- post_poly$alpha_reg[k,i] + post_poly$beta1[k,i] * seqlist[[i]][j] + post_poly$beta2[k,i] * (seqlist[[i]][j] ^ 2)
+    }
+  }
+  clusmean[[i]] <- clusmean_reg
+}
+
+globseq <- seq(min(moddat$richness$carbon_cluster),max(moddat$richness$carbon_cluster),1)
+clusmean_glob <- matrix(nrow = length(post_poly$alpha), ncol = length(globseq))
+b1 <- rowMeans(post_poly$beta1)
+b2 <- rowMeans(post_poly$beta2)
+for(j in 1:length(globseq)){
+  for(k in 1:length(post_poly$alpha)){
+    clusmean_glob[k,j] <- post_poly$alpha[k] + b1[k] * globseq[j] + b2[k] * (globseq[j] ^ 2)
+  }
+}
+
+plot(moddat$richness$div ~ moddat$richness$carbon_cluster, col = moddat$richness$biogeo, pch = 16)
+lines(colMeans(clusmean_glob) ~ globseq)
+for(i in 1:length(clusmean)){
+  lines(colMeans(clusmean[[i]]) ~ seqlist[[i]], col = i)
+}
+legend(x = 130, legend = levels(as.factor(AGBlist_clus$clusdata[order(AGBlist_clus$clusdata$ClusNum),]$biogeo)), fill = c(1:7))
+
+#### BREAKPOINTMOD
+bpmod_div <- rstan::stan(model_code = bpmod, data = moddat$richness, chains = 3, iter = 2000)
+
+pairs(bpmod_div, pars=c("alpha","beta1","beta2","sigma_cluster","cluster_mean[1]","breakpoint","test[1]","reg_bp"))
+
+test <- t(matrix(rep(rstan::extract(bpmod_div, "alpha")[[1]], length(moddat$richness$carbon_cluster)), ncol = length(moddat$richness$carbon_cluster))) + 
+  t(matrix(rep(rstan::extract(bpmod_div,"beta1")[[1]], length(moddat$richness$carbon_cluster)), ncol = length(moddat$richness$carbon_cluster))) * moddat$richness$carbon_cluster + 
+  t(matrix(rep(rstan::extract(bpmod_div,"beta2")[[1]], length(moddat$richness$carbon_cluster)), ncol = length(moddat$richness$carbon_cluster))) * t(rstan::extract(bpmod_div,"test")[[1]])
+plot(moddat$richness$div ~ moddat$richness$carbon_cluster, col = moddat$richness$biogeo, pch = 16) ; points(rowMeans(test) ~ moddat$richness$carbon_cluster, col = moddat$richness$biogeo)
+
+test <- t(rstan::extract(bpmod_div, "alpha")[[1]][,moddat$richness$biogeo]) + 
+  t(matrix(rep(rstan::extract(bpmod_div,"beta1")[[1]], length(moddat$richness$carbon_cluster)), ncol = length(moddat$richness$carbon_cluster))) * moddat$richness$carbon_cluster + 
+  t(matrix(rep(rstan::extract(bpmod_div,"beta2")[[1]], length(moddat$richness$carbon_cluster)), ncol = length(moddat$richness$carbon_cluster))) * t(rstan::extract(bpmod_div,"test")[[1]])
+plot(moddat$richness$div ~ moddat$richness$carbon_cluster, col = moddat$richness$biogeo, pch = 16) ; points(rowMeans(test) ~ moddat$richness$carbon_cluster, col = moddat$richness$biogeo)
+plot(moddat$richness$div ~ moddat$richness$carbon_cluster, col = moddat$richness$area, pch = moddat$richness$biogeo) ; points(rowMeans(test) ~ moddat$richness$carbon_cluster, col = moddat$richness$biogeo)
+
+plot(moddat$richness$div ~ AGBlist_clus$clusdata$meanAGB[order(AGBlist_clus$clusdata$ClusNum)], col = moddat$richness$biogeo, pch = 16)
+points(rowMeans(test) ~ moddat$richness$carbon_cluster, col = moddat$richness$biogeo)
+
+post_bp <- rstan::extract(bpmod_div)
+
+seqlist <- lapply(as.list(sort(unique(moddat$richness$biogeo))), function(x) seq(min(moddat$richness$carbon_cluster[which(moddat$richness$biogeo == x)]),max(moddat$richness$carbon_cluster[which(moddat$richness$biogeo == x)]),1))
+
+clusmean <- list()
+for(i in 1:length(seqlist)){
+  stepfunc <- matrix(nrow = length(post_bp$alpha), ncol = length(seqlist[[i]]))
+  clusmean_reg <- matrix(nrow = length(post_bp$alpha), ncol = length(seqlist[[i]]))
+  for(j in 1:length(seqlist[[i]])){
+    for(k in 1:length(post_bp$alpha)){
+    stepfunc[k,j] <- ifelse(seqlist[[i]][j] > post_bp$breakpoint[k], seqlist[[i]][j] - post_bp$breakpoint[k], 0) + ifelse(seqlist[[i]][j] > post_bp$reg_bp[k,i], seqlist[[i]][j] - post_bp$reg_bp[k,i], 0)
+    clusmean_reg[k,j] <- post_bp$alpha_reg[k,i] + post_bp$beta1_reg[k,i] * seqlist[[i]][j] + post_bp$beta2_reg[k,i] * stepfunc[k,j]
+    }
+  }
+  clusmean[[i]] <- clusmean_reg
+}
+
+globseq <- seq(min(moddat$richness$carbon_cluster),max(moddat$richness$carbon_cluster),1)
+stepfunc <- matrix(nrow = length(post_bp$alpha), ncol = length(globseq))
+clusmean_glob <- matrix(nrow = length(post_bp$alpha), ncol = length(globseq))
+for(j in 1:length(globseq)){
+  for(k in 1:length(post_bp$alpha)){
+    stepfunc[k,j] <- ifelse(globseq[j] > post_bp$breakpoint[k], globseq[j] - post_bp$breakpoint[k], 0)
+    #clusmean_glob[k,j] <- post_bp$alpha[k] + post_bp$beta1[k] * globseq[j] + post_bp$beta2[k] * stepfunc[k,j]
+    clusmean_glob[k,j] <- post_bp$alpha[k] + post_bp$beta1[k] * globseq[j] + post_bp$beta2[k] * stepfunc[k,j]
+  }
+}
+
+plot(moddat$richness$div ~ moddat$richness$carbon_cluster, col = moddat$richness$biogeo, pch = 16)
+lines(colMeans(clusmean_glob) ~ globseq)
+for(i in 1:length(clusmean)){
+  lines(colMeans(clusmean[[i]]) ~ seqlist[[i]], col = i)
+}
+legend(x = 130, legend = levels(as.factor(AGBlist_clus$clusdata[order(AGBlist_clus$clusdata$ClusNum),]$biogeo)), fill = c(1:7))
+
+## OTHER
+plot(moddat$richness$div ~ moddat$richness$carbon_cluster, col = RColorBrewer::brewer.pal(9, "Blues")[round(scales::rescale(AGBlist_clus$plotdata %>% group_by(ClusNum) %>% summarise(elev = mean(ALOSelev)) %>% pull(elev), c(1,9)))])
+
+
+plot(moddat$richness$div ~ AGBlist_clus$plotdata %>% group_by(ClusNum) %>% summarise(elev = mean(ALOSelev)) %>% pull(elev))
+plot(moddat$richness$carbon_cluster ~ AGBlist_clus$plotdata %>% group_by(ClusNum) %>% summarise(elev = mean(ALOSelev)) %>% pull(elev))
+
+
+
+
+
+## Economics
+moddat <- list()
+value <- read.csv("area_dep.csv")
 
 moddat$richness <- list("n_cluster" = length(unique(Zclus[,1])),
+                        "n_area" = length(unique(AGBlist_clus$clusdata$AreaNum)),
                         "n_biogeo" = length(unique(AGBlist_clus$clusdata$biogeo)),
                         "niter" = dim(Zclus[,-c(1,2)])[2],
-                        "div" = rowMeans(apply(simplify2array(by(Zclus[,-c(1:2)], Zclus$species, as.matrix)),2,rowSums)),              ### Sorted by cluster number
-                        "carbon_cluster" = colMeans(AGBlist_clus$AGBdraws)[order(AGBlist_clus$clusdata$ClusNum)],
-                        "n_knots" = 3)
+                        "div" = rowMeans(apply(simplify2array(by(Zclus[,-c(1:2)], Zclus$species, as.matrix)),2,rowSums)), ### Sorted by cluster number
+                        "carbon_cluster" = left_join(AGBlist_clus$clusdata[order(AGBlist_clus$clusdata$ClusNum),], value)$value / rowMeans(AGBlist_clus$AGBdraws[order(AGBlist_clus$AGBdraws$ClusNum),-1]),
+                        "biogeo" = as.numeric(as.factor(AGBlist_clus$clusdata[order(AGBlist_clus$clusdata$ClusNum),]$biogeo)))
 
-mod <- "data{
-              int<lower=1> n_cluster;            // number of clusters
-              vector[n_cluster] carbon_cluster;  // carbon at each cluster
-              vector[n_cluster] div;             // diversity metric at each cluster
-              int<lower=1> n_knots;
-            }
-            
-            parameters{
-              real alpha;
-              real<lower=0> sigma_cluster;
-              vector[n_knots] beta;
-              
-              real<lower=0> kprob;
-              vector[n_knots] kz;
-              
-              real<lower=0> add_mu[n_knots];
-              real<lower=0> add_sd[n_knots];
-              real<lower=0> theta_add[n_knots];
-            }
-            
-            transformed parameters{
-              real<lower=0> theta[n_knots];
-              
-              theta[1] = 0;
-              for(i in 2:n_knots){
-                theta[i] <- theta[i-1] + theta_add[i];
-              }
-              
-              matrix[n_cluster, n_knots] carbspline;
-              
-              for(i in 1:n_knots){
-                for(k in 1:n_cluster){
-                  carbspline[i,k] = carbon_cluster[i] - theta[k] < 0 ? 0 : carbon_cluster[k] - theta[k];
-                }
-              }
-              
-              vector[n_cluster] carbfunc = carbspline * (beta .* kz);
-              vector[n_cluster] cluster_mean = alpha + carbfunc;
-            }
-            
-            model{
-              // priors
-              alpha ~ normal(0, 50);
-              beta ~ normal(0, 10);
-              sigma_cluster ~ normal(0,20);
-              
-              add_mu ~ normal(0,50);
-              add_sd ~ normal(0,20);
-              theta_add ~ normal(add_mu,add_sd);
-              
-              kprob ~ uniform(0,1);
-              kz ~ bernoulli(kprob);
-              
-              // likelihood
-              div ~ normal(cluster_mean, sigma_cluster);
-            }"
+plot(rowMeans(AGBlist_clus$AGBdraws[order(AGBlist_clus$AGBdraws$ClusNum),-1]), 
+     left_join(AGBlist_clus$clusdata[order(AGBlist_clus$clusdata$ClusNum),], value)$value, 
+     col = moddat$richness$biogeo, pch = 16)
 
-testmod_div <- rstan::stan(model_code = mod, data = moddat$richness, chains = 3, iter = 2000)
+plot(moddat$richness$div ~ log(moddat$richness$carbon_cluster), col = moddat$richness$biogeo, pch = 16, xaxt = 'n')
+axis(1, at= log(c(0.5,1,2,5,10,20)), labels=c(0.5,1,2,5,10,20))
 
-mod <- "data{
-              int<lower=1> n_knots;
-            }
-            
-            parameters{
 
-              real<lower=0> kprob;
-              vector[n_knots] kz;
-
-            }
-            
-            transformed parameters{
-            }
-            
-            model{
-              // priors
-
-              kprob ~ uniform(0,1);
-              kz ~ bernoulli(1);
-
-            }"
 
 #######################################
 ## Alpha diversity vs. carbon models ##

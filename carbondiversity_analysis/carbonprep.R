@@ -41,6 +41,7 @@ plotdata <- dplyr::filter(Spatial, HabitatP %in% c("Forest","Paramo"))
 plotdata <- dplyr::filter(plotdata, is.na(FAge) | FAge > 20)
 plotdata <- plotdata[,c("SiteCode","Cluster","AreaCode","region","lat","long","Size","HabitatP")]
 plotdata <- dplyr::filter(plotdata, AreaCode != "CC")
+plotdata <- dplyr::filter(plotdata, region != "occidental")
 plotdata$SiteNum <- as.numeric(as.factor(plotdata$SiteCode))
 plotdata$ClusNum <- as.numeric(as.factor(plotdata$Cluster))
 
@@ -72,6 +73,23 @@ fpc::cluster.stats(as.dist(distmat_forest), clustering = cutree(hc_forest, h = 6
 fpc::cluster.stats(as.dist(distmat_paramo), clustering = cutree(hc_paramo, h = 65))$max.diameter
 fpc::cluster.stats(as.dist(distmat_paramo), clustering = cutree(hc_paramo, h = 65))$min.separation
 
+
+
+
+AGBlist_clus$clusdata  <- AGBlist_clus$clusdata %>%  mutate(biogeo = case_when(
+  AreaCode %in% c("AL","SM","SE","JU","CH","MO") ~ "East - east slope",
+  AreaCode %in% c("CQ","EP","TN","IG","GA","AT","TS","TA","VI","VC","BE","TU","SO","CC","RA","PP","HT") ~ "East - west slope",
+  # AreaCode == "RA" ~ "Magdalena valley",
+  # AreaCode == "HT" ~ "Magdalena valley",
+  # AreaCode == "AL" ~ "East slope",
+  # AreaCode == "SM" ~ "East slope",
+  # 
+  # 
+  # Cluster %in% c("BE1","BE2","BE3","BE4","BE5","BE6","BE7","CH1","CH2","CH3","CH4","CH5","CH6","CH7","CH8","CH9","IG8",
+  #                "TU1","TU2","TU3","TU4","TU5","TU6","TU7") ~ "East paramo",
+  # Cluster %in% c("PN1","PU2") ~ "Central paramo",
+  TRUE ~ biogeo))
+
 # Add biogeography
 biogeo <- as.data.frame(plotdata %>% group_by(AreaCode) %>% summarise(region = first(region)))
 biogeo <- biogeo %>% mutate(biogeo = case_when(
@@ -79,15 +97,8 @@ biogeo <- biogeo %>% mutate(biogeo = case_when(
   region == "central-eastern" ~ "Central Andes",
   region == "santa_marta" ~ "Santa Marta",
   region == "amazonia" ~ "Amazonia",
-  region == "oriental eastern slope" ~ "East Andes",
-  region == "oriental western slope" ~ "East Andes",
-  region == "oriental na" ~ "East Andes",
-  region == "occidental" ~ "West Andes"))
-biogeo <- biogeo %>% mutate(biogeo = case_when(
-  AreaCode == "EP" ~ "Magdalena valley",
-  AreaCode == "PP" ~ "Magdalena valley",
-  TRUE ~ biogeo
-))
+  AreaCode %in% c("AL","SM","SE","JU","CH","MO") ~ "East - east slope",
+  AreaCode %in% c("CQ","EP","TN","IG","GA","AT","TS","TA","VI","VC","BE","TU","SO","CC","RA","PP","HT") ~ "East - west slope"))
 biogeo$bioNum <- as.numeric(as.factor(biogeo$biogeo))
 plotdata <- dplyr::left_join(plotdata, biogeo[,c("AreaCode","biogeo","bioNum")])
 plotdata$region <- NULL
@@ -152,7 +163,6 @@ rm(coredSp, Spatial, AddPoints)
 moddat <- list("n_trees" = length(Treedata$WSG),                      # Number of observations
                "n_cores" = length(which(!is.na(Treedata$WSG))),       # Number of cores
                "n_spec" = length(unique(Treedata$Species)),           # Number of species
-               #"n_biogeo" = length(unique(Treedata$bioNum)),          # Number of biogeographic regions
                "n_area" = length(unique(plotdata$AreaNum)),           # Number of areas
                "n_cluster" = length(unique(plotdata$ClusNum)),        # Number of clusters
                "n_site" = length(unique(plotdata$SiteNum)),           # Number of sites
@@ -163,7 +173,6 @@ moddat <- list("n_trees" = length(Treedata$WSG),                      # Number o
                "site" = Treedata$SiteNum,                                                                             # Site for each observation
                "cluster_site" = plotdata %>% group_by(SiteNum) %>% summarise(clus = first(ClusNum)) %>% pull(clus),   # Cluster for each site
                "area_cluster" = plotdata %>% group_by(ClusNum) %>% summarise(area = first(AreaNum)) %>% pull(area))   # Area for each cluster
-               #"biogeo_area" = plotdata %>% group_by(AreaNum) %>% summarise(reg = first(bioNum)) %>% pull(reg))       # Region for each area
 
 wsgtreemod <- rstan::stan(file = "STAN\\carbdiv_wsgtreemodel.stan", data = moddat, chains = 3, iter = 2000, cores = 3)
 
@@ -191,12 +200,12 @@ postest_wsgtreemod <- rbind(data.frame(postest_wsgtreemod),
 write.csv(postest_wsgtreemod, "Output//CarbDiv//postest_wsgtreemod.csv")
 
 # Posterior predictive checks and nuts 
-bayesplot::mcmc_trace(wsgtreemod, pars = c("alpha","sigma1","sigma2","mu_spec","sigma_spec","sigma_biogeo","sigma_area","sigma_cluster","sigma_site"))
-bayesplot::mcmc_parcoord(wsgtreemod, np = bayesplot::nuts_params(wsgtreemod,div_size = 3), pars = c("alpha","sigma1","sigma2","sigma_biogeo","sigma_area","sigma_cluster","sigma_site","mu_spec","sigma_spec"))
-bayesplot::mcmc_parcoord(wsgtreemod, np = bayesplot::nuts_params(wsgtreemod,div_size = 3), pars = c("b_biogeo[1]","b_area[1]","b_cluster[1]","b_site[1]","sigma_biogeo_raw[1]","sigma_area_raw[1]","sigma_cluster_raw[1]","sigma_site_raw[1]"))
+bayesplot::mcmc_trace(wsgtreemod, pars = c("alpha","sigma1","sigma2","mu_spec","sigma_spec","sigma_area","sigma_cluster","sigma_site"))
+bayesplot::mcmc_parcoord(wsgtreemod, np = bayesplot::nuts_params(wsgtreemod,div_size = 3), pars = c("alpha","sigma1","sigma2","sigma_area","sigma_cluster","sigma_site","mu_spec","sigma_spec"))
+bayesplot::mcmc_parcoord(wsgtreemod, np = bayesplot::nuts_params(wsgtreemod,div_size = 3), pars = c("b_area[1]","b_cluster[1]","b_site[1]","sigma_area[1]","sigma_cluster_raw[1]","sigma_site_raw[1]"))
 
 pwsg_pairs1 <- bayesplot::mcmc_pairs(wsgtreemod, np = bayesplot::nuts_params(wsgtreemod), pars = c("alpha","sigma1","sigma2","mu_spec","sigma_spec","b_spec[1]","sigma_spec_raw[1]"))
-pwsg_pairs2 <- bayesplot::mcmc_pairs(wsgtreemod, np = bayesplot::nuts_params(wsgtreemod), pars = c("b_biogeo[1]","b_area[1]","b_cluster[1]","b_site[1]","sigma_biogeo","sigma_area","sigma_cluster","sigma_site","sigma_area_raw[1]","sigma_cluster_raw[1]","sigma_site_raw[1]"))
+pwsg_pairs2 <- bayesplot::mcmc_pairs(wsgtreemod, np = bayesplot::nuts_params(wsgtreemod), pars = c("b_area[1]","b_cluster[1]","b_site[1]","sigma_area","sigma_cluster","sigma_site","sigma_cluster_raw[1]","sigma_site_raw[1]"))
 
 pwsg_grid <- bayesplot::bayesplot_grid(
                 bayesplot::ppc_dens_overlay(moddat$WSG, t(wsgmoddraws)[1:100,which(!is.na(Treedata$WSG))]),
@@ -230,6 +239,57 @@ tiff(file = "Output\\CarbDiv\\WSG_scatterplots.tiff", width = 10000, height = 50
   legend("topleft", bty = "n",
          paste("Pearson's r =", round(cor(rowMeans(wsgdraws_plot[,-1]), plotdata[order(plotdata$SiteNum),]$wsg_w, use = "complete.obs"), 2)))
 dev.off()
+
+# WSG by taxonomy plot
+treesQuercus <- dplyr::filter(Treedata, Species == "Quercus Humboldtii")
+treesID <- dplyr::filter(Treedata, !Species %in% c("Quercus Humboldtii","nospec"))
+treesNOID <- dplyr::filter(Treedata, Species == "nospec")
+
+tiff(file = "Output\\CarbDiv\\WSG_taxonomy.tiff", width = 10000, height = 5000, res = 900)
+  layout(matrix(c(1,2,3,3), 2, 2, byrow = TRUE), widths = c(0.5,0.5), height = c(0.8, 1.2))
+  par(mar = c(4, 4, 0.5, 0.5))
+  hist(treesNOID$WSG, xlab = "WSG", main = NA, xlim = c(0.1, 1.4))
+  legend("topright", legend = c(paste("Unidentified trees (n = ", length(which(!is.na(treesNOID$WSG))), ")", sep = ""), 
+                                paste("Coefficient of variation: ", round(sd(treesNOID$WSG, na.rm=T)/mean(treesNOID$WSG, na.rm=T), 2), sep = "")),
+         ncol = 1, bty = "n")
+  abline(v = mean(treesNOID$WSG, na.rm = T), col = "red")
+  hist(treesQuercus$WSG, xlab = "WSG", main = NA, xlim = c(0.1, 1.4))
+  legend("topright", legend = c(paste("Quercus Humboldtii (n = ", length(which(!is.na(treesQuercus$WSG))), ")", sep = ""), 
+                                paste("Coefficient of variation: ", round(sd(treesQuercus$WSG, na.rm=T)/mean(treesQuercus$WSG, na.rm=T), 2), sep = "")),
+         ncol = 1, bty = "n")
+  abline(v = mean(treesQuercus$WSG, na.rm = T), col = "red")
+  boxplot(WSG ~ Species, treesID, xlab = "Identifier", xaxt = "n")
+  legend("topleft", legend = c(paste("Trees with plot-specific identifier (n = ", length(which(!is.na(treesID$WSG))), ")", sep = ""), 
+                               paste("Coefficient of variation: ", round(mean(data.frame(treesID %>% group_by(Species) %>% summarise(CV = sd(WSG, na.rm = T) / mean(WSG, na.rm = T)))$CV), 2), sep = "")),
+         ncol = 1, bty = "n")
+dev.off()
+
+# Tree size distribution plot
+Treedata$DBH2 <- ifelse(Treedata$DBH > 50, 50, Treedata$DBH)
+Treedata$DBHwsg <- ifelse(is.na(Treedata$WSG), NA, Treedata$DBH2)
+
+library(ggplot2)
+ggplot(Treedata)+
+  theme_classic()+
+  scale_x_continuous(breaks = seq(5, 50, 5), expand = c(0,0), 
+                     labels = c("5-10","10-15","15-20","20-25","25-30","30-35","35-40","40-45","45-50","50+"))+
+  scale_y_continuous(breaks = scales::pretty_breaks(n = 10), expand = c(0,0))+
+  geom_histogram(aes(x = DBH2), fill = "darkgreen", binwidth = 5)+
+  geom_histogram(aes(x = DBHwsg), fill = "darkorange", binwidth = 5)+
+  labs(x = "DBH range", y = "Count")
+
+ggsave("Output\\CarbDiv\\WSG_treesize.tiff", width = 11, height = 10, units = "cm")
+
+# Moran's I
+residuals <- moddat$WSG - colMeans(rstan::extract(wsgtreemod, "mu")[[1]][,moddat$core_treenum])
+coordmat <- as.matrix(dist(cbind(Treedata$long[which(!is.na(Treedata$WSG))], Treedata$lat[which(!is.na(Treedata$WSG))])))
+
+dists <- coordmat + 1
+dists.inv <- 1/dists
+diag(dists.inv) <- 0
+dists.inv[is.infinite(dists.inv)] <- 0
+
+as.data.frame(ape::Moran.I(residuals, dists.inv, na.rm = T))
 
 # Save model object
 wsgtreemod@stanmodel@dso <- new("cxxdso")
@@ -366,15 +426,18 @@ paramodata <- list(n_point = nrow(AGBlist_paramo$plotdata),                     
                    area_cluster = as.numeric(as.factor(AGBlist_paramo$plotdata %>% group_by(ClusNum) %>% summarise(area = first(AreaNum)) %>% pull(area))), # Area at each cluster
                    cluster = as.numeric(as.factor(AGBlist_paramo$plotdata[order(AGBlist_paramo$plotdata$SiteNum),]$ClusNum)))        # Cluster at each point
 
-clusmod_forest <- rstan::stan(file = "STAN\\carbdiv_clus_forest.stan", data = forestdata, chains = 3, iter = 5000, control = list(adapt_delta=0.99), cores = 4)
-clusmod_paramo <- rstan::stan(file = "STAN\\carbdiv_clus_paramo.stan", data = paramodata, chains = 3, iter = 5000, control = list(adapt_delta=0.99), cores = 4)
+clusmod_forest <- rstan::stan(file = "STAN\\carbdiv_clus_forest.stan", data = forestdata, chains = 3, iter = 5000, control = list(adapt_delta=0.99), cores = 3)
+clusmod_paramo <- rstan::stan(file = "STAN\\carbdiv_clus_paramo.stan", data = paramodata, chains = 3, iter = 5000, control = list(adapt_delta=0.99), cores = 3)
   # 6+ divergent transitions after warmup
 
-clusmod_forest2 <- rstan::stan(file = "STAN\\carbdiv_clus_forest2.stan", data = forestdata, chains = 3, iter = 2000)
-clusmod_paramo2 <- rstan::stan(file = "STAN\\carbdiv_clus_paramo2.stan", data = paramodata, chains = 3, iter = 2000)
+clusmod_forest2 <- rstan::stan(file = "STAN\\carbdiv_clus_forest2.stan", data = forestdata, chains = 3, iter = 5000, control = list(adapt_delta=0.99), cores = 3)
+clusmod_paramo2 <- rstan::stan(file = "STAN\\carbdiv_clus_paramo2.stan", data = paramodata, chains = 3, iter = 5000, control = list(adapt_delta=0.99), cores = 3)
 
-pairs(clusmod_forest, pars = c("alpha","beta","lsigma_small","lsigma_offset","sigma_area","sigma_cluster"), condition = "energy__")
-pairs(clusmod_paramo, pars = c("alpha","cluster_mean[1]","lsigma_point","sigma_area","alpha_area[1]","beta[1]","carbon_cluster[1]","sigma_cluster"), condition = "energy__")
+pairs(clusmod_forest, pars = c("alpha","lsigma_point","sigma_area","sigma_cluster","cluster_mean[1]","carbon_cluster[1]","beta"))
+pairs(clusmod_paramo, pars = c("alpha","cluster_mean[1]","lsigma_point","sigma_area","sigma_area_raw[1]","alpha_area[1]","beta[1]","carbon_cluster[1]","sigma_cluster","sigma_c_raw[1]"))
+
+pairs(clusmod_forest2, pars = c("alpha","alpha_area[1]","alpha_cluster[1]","lsigma_small","lsigma_offset","sigma_area","sigma_cluster","a","b","cluster_lmean[1]","carbon_cluster[1]"))
+pairs(clusmod_paramo2, pars = c("alpha","alpha_cluster[1]","lsigma_small","lsigma_offset","sigma_cluster","cluster_lmean[1]","carbon_cluster[1]"))
 
 # Extract AGB estimates - forest model
 AGBmu_forest <- rstan::extract(clusmod_forest,"cluster_lmean")[[1]]
@@ -390,12 +453,17 @@ write.csv(postest_clusmodforest, "Output//CarbDiv//postest_wsgtreemod.csv")
 
 # Errors plot
 par(mfrow = c(2,2))
-e_plot_forest <- forestdata$lcarbon_point - t(AGBmu_forest)
-plot(rowMeans(e_plot_forest) ~ rowMeans(t(AGBmu_forest)),
+e_plot_forest <- forestdata$lcarbon_point - t(AGBmu_forest)[forestdata$cluster,]
+plot(rowMeans(e_plot_forest) ~ rowMeans(t(AGBmu_forest)[forestdata$cluster,]),
      xlab = "Estimated expected point carbon", ylab = "Observed minus expected point carbon") ; abline(h = 0)
-e_clus_forest <- aggregate(exp(forestdata$lcarbon_point), list(forestdata$cluster), mean)[,2] - t(rstan::extract(clusmod_forest, "cluster_mean")[[1]])
-plot(rowMeans(e_clus_forest) ~ colMeans(rstan::extract(clusmod_forest, "cluster_mean")[[1]]), 
+e_clus_forest <- aggregate(exp(forestdata$lcarbon_point), list(forestdata$cluster), mean)[,2] - t(exp(rstan::extract(clusmod_forest, "cluster_lmean")[[1]]))
+plot(rowMeans(e_clus_forest) ~ colMeans(exp(rstan::extract(clusmod_forest, "cluster_lmean")[[1]])), 
      xlab = "Estimated expected cluster carbon", ylab = "Observed minus expected cluster carbon") ; abline(h = 0)
+
+e_clus_forest <- aggregate(exp(forestdata$lcarbon_point), list(forestdata$cluster), mean)[,2] -  aggregate(rowMeans(t(exp(rstan::extract(clusmod_forest, "cluster_lmean")[[1]]))), list(forestdata$cluster), mean)[,2]
+plot(e_clus_forest ~ aggregate(rowMeans(t(exp(rstan::extract(clusmod_forest, "cluster_lmean")[[1]]))), list(forestdata$cluster), mean)[,2], 
+     xlab = "Estimated expected cluster carbon", ylab = "Observed minus expected cluster carbon") ; abline(h = 0)
+
 plot(aggregate(exp(forestdata$lcarbon_point), list(forestdata$cluster), mean)[,2] ~ forestdata$predictor[,1],
      xlab = "Elevation", ylab = "Observed average cluster value")
 plot(colMeans(rstan::extract(clusmod_forest, "carbon_cluster")[[1]]) ~ forestdata$predictor[,1],
@@ -413,8 +481,19 @@ postest_clusmodparamo <- rbind(data.frame(postest_clusmodparamo),
                                "R2" = data.frame("mean" = mean(R2), "2.5%" = sort(R2)[length(R2)*0.025], "97.5%" = sort(R2)[length(R2)*0.975]))
 write.csv(postest_clusmodparamo, "Output//CarbDiv//postest_wsgtreemod.csv")
 
+# Moran's I
+residuals <- forestdata$lcarbon_point - colMeans(AGBmu_forest)[forestdata$cluster]
+coordmat <- as.matrix(dist(cbind(AGBlist_forest$plotdata[order(AGBlist_forest$plotdata$SiteNum),]$long, AGBlist_forest$plotdata[order(AGBlist_forest$plotdata$SiteNum),]$lat)))
+
+dists <- coordmat + 1
+dists.inv <- 1/dists
+diag(dists.inv) <- 0
+dists.inv[is.infinite(dists.inv)] <- 0
+
+as.data.frame(ape::Moran.I(residuals, dists.inv, na.rm = T))
+
 # Posterior predictive checks and nuts- forest model
-bayesplot::mcmc_trace(clusmod_forest, pars = c("alpha","cluster_mean[1]","lsigma_small","lsigma_offset","sigma_area","alpha_area[1]","beta[1]","beta[2]","beta[3]","beta[4]","carbon_cluster[1]","sigma_cluster"))
+bayesplot::mcmc_trace(clusmod_forest, pars = c("alpha","cluster_mean[1]","a","b","lsigma_small","lsigma_offset","sigma_area","alpha_area[1]","beta[1]","beta[2]","beta[3]","beta[4]","carbon_cluster[1]","sigma_cluster[1]"))
 bayesplot::mcmc_parcoord(clusmod_forest, np = bayesplot::nuts_params(clusmod_forest,div_size = 3), pars = c("alpha","cluster_mean[1]","lsigma_small","lsigma_offset","sigma_area","alpha_area[1]","beta[1]","beta[2]","beta[3]","beta[4]","carbon_cluster[1]","sigma_cluster"))
 
 pclusforest_pairs1 <- bayesplot::mcmc_pairs(clusmod_forest, np = bayesplot::nuts_params(clusmod_forest), pars = c("alpha","sigma_area","alpha_area[1]","beta[1]","beta[2]","beta[3]","beta[4]"))
