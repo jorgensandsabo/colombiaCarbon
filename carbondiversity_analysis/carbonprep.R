@@ -393,7 +393,7 @@ saveRDS(AGBlist, "Output\\CarbDiv\\AGBlist.RDS")
 ##############################
 ## Upscale to cluster level ##
 ##############################
-AGBlist <- readRDS("Output\\CarbDiv\\AGBlist.RDS")
+AGBlist <- readRDS("Output\\CarbDiv\\With_choco\\AGBlist.RDS")
 spatial <- read.csv("Data\\vegetation\\Spatialdata.csv")
 AGBlist$plotdata <- dplyr::left_join(AGBlist$plotdata, spatial[,c("SiteCode","ALOSelev","TotPrec","TempVar","PrecVar")])
 
@@ -426,18 +426,47 @@ paramodata <- list(n_point = nrow(AGBlist_paramo$plotdata),                     
                    area_cluster = as.numeric(as.factor(AGBlist_paramo$plotdata %>% group_by(ClusNum) %>% summarise(area = first(AreaNum)) %>% pull(area))), # Area at each cluster
                    cluster = as.numeric(as.factor(AGBlist_paramo$plotdata[order(AGBlist_paramo$plotdata$SiteNum),]$ClusNum)))        # Cluster at each point
 
-clusmod_forest <- rstan::stan(file = "STAN\\carbdiv_clus_forest.stan", data = forestdata, chains = 3, iter = 5000, control = list(adapt_delta = 0.99), cores = 3)
-clusmod_paramo <- rstan::stan(file = "STAN\\carbdiv_clus_paramo.stan", data = paramodata, chains = 3, iter = 5000, control = list(adapt_delta = 0.99), cores = 3)
-  # 6+ divergent transitions after warmup
+clusmod_forest <- rstan::stan(file = "STAN\\carbdiv_clus_forest.stan", data = forestdata, chains = 3, iter = 2000, control = list(adapt_delta = 0.99), cores = 3)
+clusmod_forest2 <- rstan::stan(file = "STAN\\carbdiv_clus_forest2.stan", data = forestdata, chains = 3, iter = 2000, control = list(adapt_delta = 0.99), cores = 3)
+clusmod_forest_a <- rstan::stan(file = "STAN\\carbdiv_clus_forest_a.stan", data = forestdata, chains = 3, iter = 2000, control = list(adapt_delta = 0.99), cores = 3)
+# Rhat 1.8, maximum treedepth (1000), Bulk ESS, Tail ESS
+clusmod_forest2_a <- rstan::stan(file = "STAN\\carbdiv_clus_forest2_a.stan", data = forestdata, chains = 3, iter = 2000, control = list(adapt_delta = 0.99), cores = 3)
+# Rhat 1.35, divergent transitions (12), maximum treedepth (15), Bulk ESS, Tail ESS
 
-clusmod_forest2 <- rstan::stan(file = "STAN\\carbdiv_clus_forest2.stan", data = forestdata, chains = 3, iter = 5000, control = list(adapt_delta = 0.99), cores = 3)
-clusmod_paramo2 <- rstan::stan(file = "STAN\\carbdiv_clus_paramo2.stan", data = paramodata, chains = 3, iter = 5000, control = list(adapt_delta = 0.99), cores = 3)
+clusmod_paramo <- rstan::stan(file = "STAN\\carbdiv_clus_paramo.stan", data = paramodata, chains = 3, iter = 2000, control = list(adapt_delta = 0.99), cores = 3)
+# divergent transitions (1)
+clusmod_paramo2 <- rstan::stan(file = "STAN\\carbdiv_clus_paramo2.stan", data = paramodata, chains = 3, iter = 2000, control = list(adapt_delta = 0.99), cores = 3)
+# Bulk ESS, Tail ESS
+clusmod_paramo_a <- rstan::stan(file = "STAN\\carbdiv_clus_paramo_a.stan", data = paramodata, chains = 3, iter = 2000, control = list(adapt_delta = 0.99), cores = 3)
+clusmod_paramo2_a <- rstan::stan(file = "STAN\\carbdiv_clus_paramo2_a.stan", data = paramodata, chains = 3, iter = 2000, control = list(adapt_delta = 0.99), cores = 3)
+# divergent transitions (7), Bulk ESS, Tail ESS
 
-pairs(clusmod_forest, pars = c("alpha","alpha_area[1]","lsigma_point","sigma_area","sigma_cluster","cluster_mean[1]","cluster_lmean[1]","carbon_cluster[1]","beta"))
-pairs(clusmod_forest2, pars = c("alpha","alpha_area[1]","lsigma_point","sigma_area","cluster_lmean[1]","carbon_cluster[1]","beta"))
+pairs(clusmod_forest, pars = c("alpha","lsigma_point[1]","sigma_cluster","cluster_mean[1]","cluster_lmean[1]","carbon_cluster[1]","beta"))
+pairs(clusmod_forest_a, pars = c("alpha","alpha_area[1]","lsigma_point[1]","sigma_area","sigma_cluster","cluster_mean[1]","cluster_lmean[1]","carbon_cluster[1]","beta"))
+pairs(clusmod_forest2, pars = c("alpha","alpha_cluster[1]","lsigma_point","sigma_cluster","cluster_lmean[1]","carbon_cluster[1]","beta"))
+pairs(clusmod_forest2_a, pars = c("alpha","alpha_area[1]","sigma_area","alpha_cluster[1]","lsigma_point","sigma_cluster","cluster_lmean[1]","carbon_cluster[1]","beta"))
 
 pairs(clusmod_paramo, pars = c("alpha","lsigma_point","sigma_cluster","cluster_mean[1]","sigma_c_raw[1]","cluster_lmean[1]","carbon_cluster[1]","beta"))
-pairs(clusmod_paramo2, pars = c("alpha","lsigma_point","cluster_lmean[1]","carbon_cluster[1]","beta"))
+pairs(clusmod_paramo2, pars = c("alpha","alpha_cluster[1]","sigma_cluster","lsigma_point","cluster_lmean[1]","carbon_cluster[1]","beta"))
+pairs(clusmod_paramo_a, pars = c("alpha","alpha_area[1]","sigma_area","lsigma_point","sigma_cluster","cluster_mean[1]","sigma_c_raw[1]","cluster_lmean[1]","carbon_cluster[1]","beta"))
+pairs(clusmod_paramo2_a, pars = c("alpha","alpha_area[1]","sigma_area","alpha_cluster[1]","sigma_cluster","lsigma_point","cluster_lmean[1]","carbon_cluster[1]","beta"))
+
+plot(colMeans(rstan::extract(clusmod_forest,"carbon_cluster")[[1]]), 
+     colMeans(rstan::extract(clusmod_forest_a,"carbon_cluster")[[1]]),
+     xlab = "model1 - no area effect", ylab = "model2 - area effect",
+     col = forestdata$area_cluster)
+abline(0,1)
+
+# Scatter plot compare models
+plot(colMeans(rstan::extract(clusmod_forest,"carbon_cluster")[[1]])[forestdata$cluster], 
+     colMeans(exp(rstan::extract(clusmod_forest2,"carbon_cluster")[[1]])),
+     xlab = "model1 - covariates on the landscape carbon", ylab = "model2 - covariates on the log of plot average carbon")
+abline(0,1)
+
+plot(colMeans(rstan::extract(clusmod_paramo,"carbon_cluster")[[1]]), 
+     colMeans(exp(rstan::extract(clusmod_paramo2,"carbon_cluster")[[1]])),
+     xlab = "model1 - covariates on the landscape carbon", ylab = "model2 - covariates on the log of plot average carbon")
+abline(0,1)
 
 # Extract AGB estimates - forest model
 AGBmu_forest <- rstan::extract(clusmod_forest,"cluster_lmean")[[1]]
@@ -457,9 +486,11 @@ e_plot_forest <- forestdata$lcarbon_point - t(AGBmu_forest)[forestdata$cluster,]
 plot(rowMeans(e_plot_forest) ~ rowMeans(t(AGBmu_forest)[forestdata$cluster,]),
      xlab = "Estimated expected point carbon", ylab = "Observed minus expected point carbon") ; abline(h = 0)
 
-# e_clus_forest <- aggregate(exp(forestdata$lcarbon_point), list(forestdata$cluster), mean)[,2] - t(exp(rstan::extract(clusmod_forest, "cluster_lmean")[[1]]))
-# plot(rowMeans(e_clus_forest) ~ colMeans(exp(rstan::extract(clusmod_forest, "cluster_lmean")[[1]])), 
-#      xlab = "Estimated expected cluster carbon", ylab = "Observed minus expected cluster carbon") ; abline(h = 0)
+  # Model2
+e_clus_forest <- aggregate(exp(forestdata$lcarbon_point), list(forestdata$cluster), mean)[,2] - t(exp(rstan::extract(clusmod_forest2, "cluster_lmean")[[1]]))
+plot(rowMeans(e_clus_forest) ~ colMeans(exp(rstan::extract(clusmod_forest2, "cluster_lmean")[[1]])),
+     xlab = "Estimated expected cluster carbon", ylab = "Observed minus expected cluster carbon") ; abline(h = 0)
+  # Model 1
 e_clus_forest <- aggregate(exp(forestdata$lcarbon_point), list(forestdata$cluster), mean)[,2] -  aggregate(rowMeans(t(exp(rstan::extract(clusmod_forest, "cluster_lmean")[[1]]))), list(forestdata$cluster), mean)[,2]
 plot(e_clus_forest ~ aggregate(rowMeans(t(exp(rstan::extract(clusmod_forest, "cluster_lmean")[[1]]))), list(forestdata$cluster), mean)[,2], 
      xlab = "Estimated expected cluster carbon", ylab = "Observed minus expected cluster carbon") ; abline(h = 0)
