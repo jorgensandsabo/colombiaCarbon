@@ -13,6 +13,10 @@ AGBlist$plotdata <- dplyr::left_join(AGBlist$plotdata, spatial[,c("SiteCode","AL
 AGBlist_forest <- lapply(AGBlist, function(x) x[which(x$SiteNum %in% AGBlist$plotdata[AGBlist$plotdata$HabitatP == "Forest",]$SiteNum),])
 AGBlist_paramo <- lapply(AGBlist, function(x) x[which(x$SiteNum %in% AGBlist$plotdata[AGBlist$plotdata$HabitatP == "Paramo",]$SiteNum),])
 
+AGBlist_forest$plotdata <- dplyr::filter(AGBlist_forest$plotdata, Cluster != "JU5")
+
+AGBlist_forest$plotdata <- AGBlist_forest$plotdata[-which(AGBlist_forest$plotdata$Cluster == "JU5"),]
+AGBlist_forest$AGBdraws <- AGBlist_forest$AGBdraws[-which(AGBlist_forest$plotdata$Cluster == "JU5"),]
 forestpredictors <- cbind(scale(AGBlist_forest$plotdata %>% group_by(ClusNum) %>% summarise(elev = mean(ALOSelev)) %>% pull(elev))[,1],
                           scale(AGBlist_forest$plotdata %>% group_by(ClusNum) %>% summarise(prec = mean(TotPrec)) %>% pull(prec))[,1],
                           scale(AGBlist_forest$plotdata %>% group_by(ClusNum) %>% summarise(tempvar = mean(TempVar)) %>% pull(tempvar))[,1],
@@ -70,7 +74,8 @@ loo::loo_compare(lapply(models, loo::loo))
 
 ## Plot differences in cluster carbon estimates
 plot(colMeans(rstan::extract(mod2_forest,"carbon_cluster")[[1]]), 
-     colMeans(rstan::extract(mod4_forest,"carbon_cluster")[[1]]))
+     colMeans(rstan::extract(mod4_forest,"carbon_cluster")[[1]]),
+     xlab = "fixed variance", ylab = "heteroscedastic model", main = "model estimate difference")
 abline(0,1)
 
 # Errors plot
@@ -93,7 +98,7 @@ plot(colMeans(postvalues$carbon_cluster) ~ forestdata$predictor[,1],
 
 ## Histogram
 postvalues <- rstan::extract(mod4_forest)
-hist(postvalues$meanfraction)
+hist(postvalues$meanfraction, main = "fraction of the mean parameter")
 
 ##### MODELS
 # Only random cluster effect
