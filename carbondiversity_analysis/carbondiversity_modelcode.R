@@ -1,10 +1,11 @@
-
-
 if(file.exists('C:\\Users\\Jorgen\\Documents\\machine_identifier_lu847jp1o.txt')){dir.path <- "C:\\Users\\Jorgen\\OneDrive - Norwegian University of Life Sciences\\PhD"}
 if(file.exists('C:\\Users\\jorgesan\\Documents\\machine_identifier_lksj7842.txt')){dir.path <- "C:\\Users\\jorgesan\\OneDrive - Norwegian University of Life Sciences\\PhD"}
 
 setwd(dir.path)
 
+##################################
+#### Carbon preparation models ###
+##################################
 ## Model to estimate individual tree WSG
 write("data{
               int<lower=1> n_trees;            // number of trees
@@ -90,24 +91,25 @@ write("data{
             }
             
             parameters{
-              vector[n_habitat] alpha_hab;         // intercept by habitat
+              vector[n_habitat] alpha_hab;                  // intercept by habitat
               vector<lower=0>[n_habitat] sigma_hab;         // standard deviation by habitat
               vector<lower=0>[n_habitat] sigma_cluster_hab; // standard deviation of cluster effect by habitat
-              vector[n_cluster] alpha_clus;        // intercept by cluster within habitat
+              vector[n_cluster] sigma_cluster_hab_raw;      // non-centred parametrization parameter for cluster random effect
             }
             
             transformed parameters{
-              vector[n_cluster] sigma_cluster = sigma_cluster_hab[hab_cluster];  // standard deviation of cluster
-              vector[n_site] mu = alpha_clus[cluster];                           // mean of site biomass within cluster
-              vector[n_site] sigma = sigma_hab[habitat];                         // standard deviation of site biomass within habitat
+              vector[n_cluster] alpha_clus = alpha_hab[hab_cluster] + sigma_cluster_hab[hab_cluster] .* sigma_cluster_hab_raw;   // cluster random effect
+              vector[n_cluster] sigma_cluster = sigma_cluster_hab[hab_cluster];                                                  // standard deviation of cluster
+              vector[n_site] mu = alpha_clus[cluster];                                                                           // mean of site biomass within cluster
+              vector[n_site] sigma = sigma_hab[habitat];                                                                         // standard deviation of site biomass within habitat
             }
             
             model{
               // priors
               alpha_hab ~ normal(0,30);
               sigma_hab ~ normal(0, 10);
-              sigma_cluster_hab ~ normal(0, 10);
-              alpha_clus ~ normal(alpha_hab[hab_cluster], sigma_cluster);
+              sigma_cluster_hab ~ normal(0, 20);
+              sigma_cluster_hab_raw ~ std_normal();
               
               // likelihood
               grass ~ normal(mu[grass_sitenum], sigma[grass_sitenum]);
@@ -121,162 +123,443 @@ write("data{
             }
       ", file = "STAN\\carbdiv_grassmodel.stan")
 
-## Model to estimate cluster biomass - forest - WIGH CHOCO (plot sizes)
+################################
+#### Landscape carbon models ###
+################################
+## Forest cluster carbon model - no covariates
 write("data{
               int<lower=1> n_point;                 // number of points
               int<lower=1> n_cluster;               // number of clusters
-              int<lower=1> n_area;                  // number of areas
-              int<lower=1> n_pred;                  // number of predictors
               vector[n_point] lcarbon_point;        // log-carbon at each point
               int<lower=1> cluster[n_point];        // cluster at each point
-              //vector[n_point] plotsize;             // plot size at each point (1 = 75m2, 0 = 300m2)
-              matrix[n_cluster, n_pred] predictor;  // predictors at each cluster
-              int<lower=1> area_cluster[n_cluster]; // area at each cluster
             }
             
             parameters{
-              real alpha;                        // global intercept
-              vector[n_area] alpha_area;         // intercept by area
-              vector[n_pred] beta;                        // coefficient for each predictor
-              real<lower=0> sigma_cluster;                // between-cluster sd
-              //vector<lower=0>[n_cluster] sigma_cluster;
-              real<lower=0> sigma_area;                   // standard deviation of area effect
-              real<lower=0> lsigma_small;                 // between-point sd for small plots
-              real<lower=0> lsigma_offset;                // large plot proportional sd of small plots
-              vector<lower=0> [n_cluster] carbon_cluster; // mean carbon stocks at the cluster scale
-            }
-            
-            transformed parameters{
-              vector[n_cluster] cluster_mean = alpha_area[area_cluster] + predictor * beta;
-              vector[n_point] lsigma_point = lsigma_small * plotsize + lsigma_small * lsigma_offset * (1 - plotsize);
-              //vector[n_point] lsigma_point = lsigma_small[cluster] .* plotsize + lsigma_small[cluster] .* (lsigma_offset * (1 - plotsize));
-              vector[n_point] cluster_lmean = log(carbon_cluster[cluster]) - (lsigma_point .^ 2)/2; // mean of the logarithm of point-level carbon stocks at the cluster scale
-            }
-            
-            model{
-              // priors
-              alpha ~ normal(200,50);
-              sigma_area ~ normal(0,50);
-              beta ~ normal(0,10);
-              sigma_cluster ~ normal(0,50);
-              lsigma_small ~ normal(0,1);
-              lsigma_offset ~ normal(0,0.5);
-              // likelihood
-              alpha_area ~ normal(alpha, sigma_area);
-              carbon_cluster ~ normal(cluster_mean, sigma_cluster);
-              lcarbon_point ~ normal(cluster_lmean, lsigma_point);
-      
-            generated quantities{
-              real log_lik[n_point];
-              for(i in 1:n_point){
-                log_lik[i] = normal_lpdf(lcarbon_point[i] | cluster_lmean[i], lsigma_point[i]);
-              }
-            }", file = "STAN\\carbdiv_clus_forest.stan")
-
-## Model to estimate cluster biomass - forest - NOCHOCO
-write("data{
-              int<lower=1> n_point;                 // number of points
-              int<lower=1> n_cluster;               // number of clusters
-              int<lower=1> n_area;                  // number of areas
-              int<lower=1> n_pred;                  // number of predictors
-              vector[n_point] lcarbon_point;        // log-carbon at each point
-              int<lower=1> cluster[n_point];        // cluster at each point
-              matrix[n_cluster, n_pred] predictor;  // predictors at each cluster
-              int<lower=1> area_cluster[n_cluster]; // area at each cluster
-            }
-            
-            parameters{
-              real alpha;                                 // global intercept
-              vector[n_area] alpha_area;                  // intercept by area
-              vector[n_pred] beta;                        // coefficient for each predictor
-              real<lower=0> sigma_cluster1;                // between-cluster sd
-              real <lower=0> b;
-              real<lower=0> sigma_area;                   // standard deviation of area effect
-              vector<lower=0> [n_cluster] carbon_cluster; // mean carbon stocks at the cluster scale
+              real alpha;                         
               real<lower=0> lsigma_point;
+              real<lower=0> sigma_cluster;
+              vector[n_cluster] sigma_cluster_raw;
             }
             
             transformed parameters{
-              vector[n_cluster] cluster_mean = alpha_area[area_cluster] + predictor * beta;
-              vector[n_cluster] sigma_cluster = sigma_cluster1 + b * cluster_mean;
-              vector[n_point] cluster_lmean = log(carbon_cluster[cluster]) - (lsigma_point .^ 2)/2; // mean of the logarithm of point-level carbon stocks at the cluster scale
-            }
-            
-            model{
-              // priors
-              alpha ~ normal(200,50);
-              sigma_area ~ normal(0,50);
-              beta ~ normal(0,10);
-              sigma_cluster1 ~ normal(0,30);
-              b ~ normal(0,30);
-              lsigma_point ~ normal(0,10);
-              // likelihood
-              alpha_area ~ normal(alpha, sigma_area);
-              carbon_cluster ~ normal(cluster_mean, sigma_cluster);
-              lcarbon_point ~ normal(cluster_lmean, lsigma_point);
-            }
-      
-            generated quantities{
-              real log_lik[n_point];
-              for(i in 1:n_point){
-                log_lik[i] = normal_lpdf(lcarbon_point[i] | cluster_lmean[i], lsigma_point);
-              }
-            }", file = "STAN\\carbdiv_clus_forest2.stan")
-
-## Model to estimate cluster biomass - paramo
-write("data{
-              int<lower=1> n_point;                // number of points
-              int<lower=1> n_cluster;              // number of clusters
-              int<lower=1> n_area;                 // number of areas
-              int<lower=1> n_pred;                 // number of predictors
-              vector[n_point] lcarbon_point;       // log-carbon at each point
-              int<lower=1> cluster[n_point];       // cluster at each point
-              //int<lower=1> area_cluster[n_cluster];// area at each cluster
-              matrix[n_cluster, n_pred] predictor; // predictors at each cluster
-            }
-            
-            parameters{
-              real<lower=0> alpha;               // intercept
-              //vector<lower=0>[n_area] alpha_area;// intercept for areas
-              //vector[n_pred] beta;               // coefficient for predictors
-              //real<lower=0> sigma_area;          // standard deviation for areas
-              real<lower=0> sigma_cluster;       // between-cluster sd by habitat (should this grow with the mean?)
-              real<lower=0> lsigma_point;        // between-point sd by habitat for large plots
-              //vector[n_cluster] sigma_c_raw;
-              vector<lower=0>[n_cluster] carbon_cluster;
-              //vector[n_area] sigma_area_raw;
-            }
-            
-            transformed parameters{
-              //vector[n_area] alpha_area = alpha + sigma_area * sigma_area_raw;
-              //vector[n_cluster] cluster_mean = alpha_area[area_cluster] + predictor * beta;
-              //vector[n_cluster] cluster_mean = alpha + predictor * beta;
               real cluster_mean = alpha;
-              //vector[n_cluster] carbon_cluster = cluster_mean + sigma_cluster * sigma_c_raw;
+              vector[n_cluster] carbon_cluster = cluster_mean + sigma_cluster * sigma_cluster_raw;
               vector[n_cluster] cluster_lmean = log(carbon_cluster) - (lsigma_point ^ 2)/2; // mean of the logarithm of point-level carbon stocks at the cluster scale
             }
             
             model{
               // priors
+              alpha ~ normal(0,200);
+              sigma_cluster_raw ~ std_normal();
+              lsigma_point ~ normal(0,10);
+              sigma_cluster ~ normal(0,100);
+              // likelihood
+              lcarbon_point ~ normal(cluster_lmean[cluster], lsigma_point);
+            }
+            
+            generated quantities{
+              real log_lik[n_point];
+              for(i in 1:n_point){
+                log_lik[i] = normal_lpdf(lcarbon_point[i] | cluster_lmean[cluster[i]], lsigma_point);
+              }
+            }", file = "STAN\\carbdiv_clus_forest_intercept.stan")
+
+## Forest cluster carbon model - covariates
+write("data{
+              int<lower=1> n_point;                 // number of points
+              int<lower=1> n_cluster;               // number of clusters
+              int<lower=1> n_pred;                  // number of predictors
+              vector[n_point] lcarbon_point;        // log-carbon at each point
+              int<lower=1> cluster[n_point];        // cluster at each point
+              matrix[n_cluster, n_pred] predictor;  // predictors at each cluster
+            }
+            
+            parameters{
+              real alpha;                         
+              vector[n_pred] beta;
+              real<lower=0> lsigma_point;
+              real<lower=0> meanfraction;
+              vector[n_cluster] sigma_cluster_raw;
+            }
+            
+            transformed parameters{
+              vector[n_cluster] cluster_mean = alpha + predictor * beta;
+              vector[n_cluster] sigma_cluster = cluster_mean * meanfraction;
+              vector[n_cluster] carbon_cluster = cluster_mean + sigma_cluster .* sigma_cluster_raw;
+              vector[n_cluster] cluster_lmean = log(carbon_cluster) - (lsigma_point ^ 2)/2; // mean of the logarithm of point-level carbon stocks at the cluster scale
+            }
+            
+            model{
+              // priors
+              alpha ~ normal(0,200);
+              beta ~ normal(0,100);
+              sigma_cluster_raw ~ std_normal();
+              lsigma_point ~ normal(0,10);
+              meanfraction ~ uniform(0,1);
+              // likelihood
+              lcarbon_point ~ normal(cluster_lmean[cluster], lsigma_point);
+            }
+            
+            generated quantities{
+              real log_lik[n_point];
+              for(i in 1:n_point){
+                log_lik[i] = normal_lpdf(lcarbon_point[i] | cluster_lmean[cluster[i]], lsigma_point);
+              }
+            }", file = "STAN\\carbdiv_clus_forest_covariates.stan")
+
+## Paramo cluster biomass model - no covariates
+write("data{
+              int<lower=1> n_point;                // number of points
+              int<lower=1> n_cluster;              // number of clusters
+              vector[n_point] lcarbon_point;       // log-carbon at each point
+              int<lower=1> cluster[n_point];       // cluster at each point
+            }
+            
+            parameters{
+              real alpha;                          // intercept
+              real<lower=0> sigma_cluster;         // between-cluster sd by habitat (should this grow with the mean?)
+              real<lower=0> lsigma_point;          // between-point sd by habitat for large plots
+              vector[n_cluster] sigma_cluster_raw;
+            }
+            
+            transformed parameters{
+              real<lower=0> cluster_mean = alpha;                                                            // mean landscape carbon
+              vector[n_cluster] carbon_cluster = cluster_mean + sigma_cluster * sigma_cluster_raw;  // carbon stocks at cluster level
+              vector[n_cluster] cluster_lmean = log(carbon_cluster) - (lsigma_point ^ 2)/2;         // mean of the logarithm of point-level carbon stocks at the cluster scale
+            }
+            
+            model{
+              // priors
               alpha ~ normal(0, 50);
-             // sigma_area ~ normal(0, 50);
-            //  sigma_area_raw ~ std_normal();
-             // beta ~ normal(0, 10);
-              sigma_cluster ~ normal(0,20);
-              //sigma_c_raw ~ std_normal();
+              sigma_cluster ~ normal(0,50);
+              sigma_cluster_raw ~ std_normal();
               lsigma_point ~ normal(0,5);
               // likelihood
-              //alpha_area ~ normal(alpha, sigma_area);
-              carbon_cluster ~ normal(cluster_mean, sigma_cluster);
               lcarbon_point ~ normal(cluster_lmean[cluster], lsigma_point);
+            }
+            
+            generated quantities{
+              real log_lik[n_point];
+              for(i in 1:n_point){
+                log_lik[i] = normal_lpdf(lcarbon_point[i] | cluster_lmean[cluster[i]], lsigma_point);
+              }
+            }", file = "STAN\\carbdiv_clus_paramo_intercept.stan")
+
+## Paramo cluster biomass model - covariates
+write("data{
+              int<lower=1> n_point;                // number of points
+              int<lower=1> n_cluster;              // number of clusters
+              int<lower=1> n_pred;                 // number of predictors
+              vector[n_point] lcarbon_point;       // log-carbon at each point
+              int<lower=1> cluster[n_point];       // cluster at each point
+              matrix[n_cluster, n_pred] predictor; // predictors at each cluster
+            }
+            
+            parameters{
+              real alpha;                          // intercept
+              vector[n_pred] beta;                 // coefficient for predictors
+              real<lower=0> sigma_cluster;         // between-cluster sd by habitat (should this grow with the mean?)
+              real<lower=0> lsigma_point;          // between-point sd by habitat for large plots
+              vector[n_cluster] sigma_cluster_raw;
+            }
+            
+            transformed parameters{
+              vector[n_cluster] cluster_mean = alpha + predictor * beta;                            // mean landscape carbon
+              vector[n_cluster] carbon_cluster = cluster_mean + sigma_cluster * sigma_cluster_raw;  // carbon stocks at cluster level
+              vector[n_cluster] cluster_lmean = log(carbon_cluster) - (lsigma_point ^ 2)/2;         // mean of the logarithm of point-level carbon stocks at the cluster scale
+            }
+            
+            model{
+              // priors
+              alpha ~ normal(0, 50);
+              beta ~ normal(0, 50);
+              sigma_cluster ~ normal(0,50);
+              sigma_cluster_raw ~ std_normal();
+              lsigma_point ~ normal(0,5);
+              // likelihood
+              lcarbon_point ~ normal(cluster_lmean[cluster], lsigma_point);
+            }
+            
+            generated quantities{
+              real log_lik[n_point];
+              for(i in 1:n_point){
+                log_lik[i] = normal_lpdf(lcarbon_point[i] | cluster_lmean[cluster[i]], lsigma_point);
+              }
             }", file = "STAN\\carbdiv_clus_paramo.stan")
 
+#########################
+#### Diversity models ###
+#########################
+## Diversity models
+write("data{
+              int<lower=1> n_cluster;            // number of clusters
+              vector[n_cluster] predictor_cluster;  // predictor at each cluster
+              vector[n_cluster] div;             // diversity metric at each cluster
+              int<lower=1> biogeo[n_cluster];  // biogeographic region of each cluster
+              int<lower=1> n_biogeo;           // number of biogeographic regions
+            }
+            
+            parameters{
+              real alpha;
+              vector [n_biogeo] alpha_biogeo;
+              real<lower=0> sigma_cluster;
+              real beta1;
+              real beta2;
+              vector[n_biogeo] beta1_biogeo;
+              vector[n_biogeo] beta2_biogeo;
+            }
+            
+            transformed parameters{
+              vector[n_cluster] cluster_mean = alpha_biogeo[biogeo] + beta1_biogeo[biogeo] .* predictor_cluster + beta2_biogeo[biogeo] .* (predictor_cluster .^ 2);
+            }
+            
+            model{
+              // priors
+              alpha ~ normal(0, 100);
+              beta1 ~ normal(0, 50);
+              beta2 ~ normal(0, 50);
+              sigma_cluster ~ normal(0,100);
+              // likelihood
+              alpha_biogeo ~ normal(alpha, 100);
+              beta1_biogeo ~ normal(beta1, 50);
+              beta2_biogeo ~ normal(beta2, 50);
+              div ~ normal(cluster_mean, sigma_cluster);
+            }
+            
+            generated quantities{
+              real log_lik[n_cluster];
+              for(i in 1:n_cluster){
+                log_lik[i] = normal_lpdf(div[i] | cluster_mean[i], sigma_cluster);
+              }
+            }", file = "STAN\\carbdiv_poly_regslope.stan")
+
+write("data{
+              int<lower=1> n_cluster;            // number of clusters
+              vector[n_cluster] predictor_cluster;  // predictor at each cluster
+              vector[n_cluster] div;             // diversity metric at each cluster
+              int<lower=1> biogeo[n_cluster];  // biogeographic region of each cluster
+              int<lower=1> n_biogeo;           // number of biogeographic regions
+            }
+            
+            parameters{
+              real alpha;
+              vector[n_biogeo] alpha_biogeo;
+              real<lower=0> sigma_cluster;
+              real beta1;
+              real beta2;
+            }
+            
+            transformed parameters{
+              vector[n_cluster] cluster_mean = alpha_biogeo[biogeo] + beta1 * predictor_cluster + beta2 * (predictor_cluster .^ 2);
+            }
+            
+            model{
+              // priors
+              alpha ~ normal(0, 100);
+              beta1 ~ normal(0, 50);
+              beta2 ~ normal(0, 50);
+              sigma_cluster ~ normal(0,100);
+              // likelihood
+              alpha_biogeo ~ normal(alpha, 100);
+              div ~ normal(cluster_mean, sigma_cluster);
+            }
+            
+            generated quantities{
+              real log_lik[n_cluster];
+              for(i in 1:n_cluster){
+                 log_lik[i] = normal_lpdf(div[i] | cluster_mean[i], sigma_cluster);
+              }
+            }", file = "STAN\\carbdiv_poly_regintercept.stan")
+
+write("data{
+            int<lower=1> n_cluster;            // number of clusters
+            vector[n_cluster] predictor_cluster;  // predictor at each cluster
+            vector[n_cluster] div;             // diversity metric at each cluster
+           }
+          
+           parameters{
+            real alpha;
+            real<lower=0> sigma_cluster;
+            real beta1;
+            real beta2;
+           }
+          
+           transformed parameters{
+            vector[n_cluster] cluster_mean = alpha + beta1 * predictor_cluster + beta2 * (predictor_cluster .^ 2);
+           }
+          
+           model{
+            // priors
+            alpha ~ normal(0, 100);
+            beta1 ~ normal(0, 50);
+            beta2 ~ normal(0, 50);
+            sigma_cluster ~ normal(0,100);
+            // likelihood
+            div ~ normal(cluster_mean, sigma_cluster);
+           }
+      
+          generated quantities{
+            real log_lik[n_cluster];
+            for(i in 1:n_cluster){
+              log_lik[i] = normal_lpdf(div[i] | cluster_mean[i], sigma_cluster);
+            }
+          }", file = "STAN\\carbdiv_poly_intercept.stan")
 
 
 
+write("data{
+              int<lower=1> n_cluster;            // number of clusters
+              vector[n_cluster] predictor_cluster;  // predictor at each cluster
+              vector[n_cluster] div;             // diversity metric at each cluster
+              int<lower=1> biogeo[n_cluster];  // biogeographic region of each cluster
+              int<lower=1> n_biogeo;           // number of biogeographic regions
+            }
+            
+            parameters{
+              real alpha;
+              vector [n_biogeo] alpha_biogeo;
+              real<lower=0> sigma_cluster;
+              real beta1;
+              vector[n_biogeo] beta1_biogeo;
+            }
+            
+            transformed parameters{
+              vector[n_cluster] cluster_mean = alpha_biogeo[biogeo] + beta1_biogeo[biogeo] .* predictor_cluster;
+            }
+            
+            model{
+              // priors
+              alpha ~ normal(0, 100);
+              beta1 ~ normal(0, 50);
+              sigma_cluster ~ normal(0,100);
+              // likelihood
+              alpha_biogeo ~ normal(alpha, 100);
+              beta1_biogeo ~ normal(beta1, 50);
+              div ~ normal(cluster_mean, sigma_cluster);
+            }
+            
+            generated quantities{
+              real log_lik[n_cluster];
+              for(i in 1:n_cluster){
+                log_lik[i] = normal_lpdf(div[i] | cluster_mean[i], sigma_cluster);
+            }}", file = "STAN\\carbdiv_lin_regslope.stan")
 
 
+write("data{
+              int<lower=1> n_cluster;            // number of clusters
+              vector[n_cluster] predictor_cluster;  // predictor at each cluster
+              vector[n_cluster] div;             // diversity metric at each cluster
+              int<lower=1> biogeo[n_cluster];  // biogeographic region of each cluster
+              int<lower=1> n_biogeo;           // number of biogeographic regions
+            }
+            
+            parameters{
+              real alpha;
+              vector[n_biogeo] alpha_biogeo;
+              real<lower=0> sigma_cluster;
+              real beta1;
+            }
+            
+            transformed parameters{
+              vector[n_cluster] cluster_mean = alpha_biogeo[biogeo] + beta1 * predictor_cluster;
+            }
+            
+            model{
+              // priors
+              alpha ~ normal(0, 100);
+              beta1 ~ normal(0, 50);
+              sigma_cluster ~ normal(0,100);
+              // likelihood
+              alpha_biogeo ~ normal(alpha, 100);
+              div ~ normal(cluster_mean, sigma_cluster);
+            }
+            
+            generated quantities{
+              real log_lik[n_cluster];
+              for(i in 1:n_cluster){
+                log_lik[i] = normal_lpdf(div[i] | cluster_mean[i], sigma_cluster);
+            }}", file = "STAN\\carbdiv_lin_regintercept.stan")
 
+write("data{
+              int<lower=1> n_cluster;            // number of clusters
+              vector[n_cluster] predictor_cluster;  // predictor at each cluster
+              vector[n_cluster] div;             // diversity metric at each cluster
+              int<lower=1> biogeo[n_cluster];  // biogeographic region of each cluster
+              int<lower=1> n_biogeo;           // number of biogeographic regions
+            }
+            
+            parameters{
+              real alpha;
+              real<lower=0> sigma_cluster;
+              real beta1;
+            }
+            
+            transformed parameters{
+              vector[n_cluster] cluster_mean = alpha + beta1 * predictor_cluster;
+            }
+            
+            model{
+              // priors
+              alpha ~ normal(0, 100);
+              beta1 ~ normal(0, 50);
+              sigma_cluster ~ normal(0,100);
+              // likelihood
+              div ~ normal(cluster_mean, sigma_cluster);
+            }
+            
+            generated quantities{
+              real log_lik[n_cluster];
+              for(i in 1:n_cluster){
+                log_lik[i] = normal_lpdf(div[i] | cluster_mean[i], sigma_cluster);
+            }}", file = "STAN\\carbdiv_lin_intercept.stan")
 
-
+#################################
+#### Carbon + elevation model ###
+#################################
+write("data{
+              int<lower=1> n_cluster;            // number of clusters
+              vector[n_cluster] carbon_cluster;  // carbon at each cluster
+              vector[n_cluster] div;             // diversity metric at each cluster
+              vector[n_cluster] elevation_cluster;
+              int<lower=1> biogeo[n_cluster];  // biogeographic region of each cluster
+              int<lower=1> n_biogeo;           // number of biogeographic regions
+            }
+            
+            parameters{
+              real alpha;
+              vector[n_biogeo] alpha_biogeo;
+              real<lower=0> sigma_cluster;
+              real beta1;
+              real beta2;
+              real betaelev1;
+              real betaelev2;
+              vector[n_biogeo] beta1_biogeo;
+              vector[n_biogeo] beta2_biogeo;
+            }
+            
+            transformed parameters{
+              vector[n_cluster] cluster_mean = alpha_biogeo[biogeo] + beta1_biogeo[biogeo] .* carbon_cluster + beta2_biogeo[biogeo] .* (carbon_cluster .^ 2) + betaelev1 * elevation_cluster + betaelev2 * (elevation_cluster .^ 2);
+            }
+            
+            model{
+              // priors
+              alpha ~ normal(0,100);
+              beta1 ~ normal(0,50);
+              beta2 ~ normal(0,50);
+              betaelev1 ~ normal(0,50);
+              betaelev2 ~ normal(0,50);
+              sigma_cluster ~ normal(0,100);
+              // likelihood
+              beta1_biogeo ~ normal(beta1,50);
+              beta2_biogeo ~ normal(beta2, 50);
+              alpha_biogeo ~ normal(alpha, 100);
+              div ~ normal(cluster_mean, sigma_cluster);
+            }
+            
+            generated quantities{
+              real log_lik[n_cluster];
+              for(i in 1:n_cluster){
+                 log_lik[i] = normal_lpdf(div[i] | cluster_mean[i], sigma_cluster);
+              }
+            }", file = "STAN\\carb_elevation_div_model.stan")
 

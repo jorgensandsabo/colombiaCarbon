@@ -45,36 +45,41 @@ paramodata <- list(n_point = nrow(AGBlist_paramo$plotdata),                     
                    cluster = as.numeric(as.factor(AGBlist_paramo$plotdata[order(AGBlist_paramo$plotdata$SiteNum),]$ClusNum)))        # Cluster at each point
 
 # Intercept only
-mod1_forest <- rstan::stan(file = "STAN\\carbdiv_clus_forest_1.stan", data = forestdata, chains = 3, iter = 2000, cores = 3, control = list(adapt_delta = 0.99))
+mod1_forest <- rstan::stan(file = "STAN\\carbdiv_clus_forest_1.stan", data = forestdata, chains = 4, iter = 5000, thin = 5, cores = 4, control = list(adapt_delta = 0.99))
 # Elevation covariate
-mod2_forest <- rstan::stan(file = "STAN\\carbdiv_clus_forest_2.stan", data = forestdata, chains = 3, iter = 2000, cores = 3, control = list(adapt_delta = 0.99))
+mod2_forest <- rstan::stan(file = "STAN\\carbdiv_clus_forest_2.stan", data = forestdata, chains = 4, iter = 5000, thin = 5, cores = 4, control = list(adapt_delta = 0.99))
 # Elevation + elevation ^ 2 
-mod3_forest <- rstan::stan(file = "STAN\\carbdiv_clus_forest_3.stan", data = forestdata, chains = 3, iter = 2000, cores = 3, control = list(adapt_delta = 0.99))
+#mod3_forest <- rstan::stan(file = "STAN\\carbdiv_clus_forest_3.stan", data = forestdata, chains = 4, iter = 5000, thin = 5, cores = 4, control = list(adapt_delta = 0.99))
 # Elevation + heteroscedasticity (sigma = fraction of the mean)
-mod4_forest <- rstan::stan(file = "STAN\\carbdiv_clus_forest_4.stan", data = forestdata, chains = 3, iter = 2000, cores = 3, control = list(adapt_delta = 0.99))
+mod4_forest <- rstan::stan(file = "STAN\\carbdiv_clus_forest_4.stan", data = forestdata, chains = 4, iter = 5000, thin = 5, cores = 4, control = list(adapt_delta = 0.99))
 # Elevation + heteroscedasticity (sigma = sigma0 * mean ^ term)
-mod5_forest <- rstan::stan(file = "STAN\\carbdiv_clus_forest_5.stan", data = forestdata, chains = 3, iter = 2000, cores = 3, control = list(adapt_delta = 0.99))
+mod5_forest <- rstan::stan(file = "STAN\\carbdiv_clus_forest_5.stan", data = forestdata, chains = 4, iter = 5000, thin = 5, cores = 4, control = list(adapt_delta = 0.99))
 # Plot size sigma
-mod6_forest <- rstan::stan(file = "STAN\\carbdiv_clus_forest_6.stan", data = forestdata, chains = 3, iter = 2000, cores = 3, control = list(adapt_delta = 0.99))
+#mod6_forest <- rstan::stan(file = "STAN\\carbdiv_clus_forest_6.stan", data = forestdata, chains = 3, iter = 2000, cores = 3, control = list(adapt_delta = 0.99))
 # Plot size sigma + heteroscedasticity (sigma = fraction of the mean)
-mod7_forest <- rstan::stan(file = "STAN\\carbdiv_clus_forest_7.stan", data = forestdata, chains = 3, iter = 2000, cores = 3, control = list(adapt_delta = 0.99))
+#mod7_forest <- rstan::stan(file = "STAN\\carbdiv_clus_forest_7.stan", data = forestdata, chains = 3, iter = 2000, cores = 3, control = list(adapt_delta = 0.99))
 
 # Pairs plots
-pairs(mod1_forest, pars = c("alpha","lsigma_point","sigma_cluster","cluster_mean[1]","cluster_lmean[1]","carbon_cluster[1]"))
+pairs(mod1_forest, pars = c("alpha","lsigma_point","sigma_cluster","cluster_mean","cluster_lmean[1]","carbon_cluster[1]"))
 pairs(mod2_forest, pars = c("alpha","lsigma_point","sigma_cluster","cluster_mean[1]","cluster_lmean[1]","carbon_cluster[1]","beta"))
 pairs(mod3_forest, pars = c("alpha","lsigma_point","sigma_cluster","cluster_mean[1]","cluster_lmean[1]","carbon_cluster[1]","beta","beta2"))
 pairs(mod4_forest, pars = c("alpha","lsigma_point","sigma_cluster[1]","meanfraction","cluster_mean[1]","cluster_lmean[1]","carbon_cluster[1]","beta"))
-pairs(mod5_forest, pars = c("alpha","lsigma_point","sigma_cluster[1]","sigma_cluster0","meanfraction","cluster_mean[1]","cluster_lmean[1]","carbon_cluster[1]","beta"))
-pairs(mod6_forest, pars = c("alpha","lsigma_point[1]","lsigma_small","lsigma_offset","sigma_cluster","cluster_mean[1]","cluster_lmean[1]","carbon_cluster[1]","beta"))
-pairs(mod7_forest, pars = c("alpha","lsigma_point[103]","lsigma_small","meanfraction","lsigma_offset","sigma_cluster[103]","cluster_mean[103]","cluster_lmean[103]","carbon_cluster[103]","beta"))
+#pairs(mod5_forest, pars = c("alpha","lsigma_point","sigma_cluster[1]","sigma_cluster0","meanfraction","cluster_mean[1]","cluster_lmean[1]","carbon_cluster[1]","beta"))
+#pairs(mod6_forest, pars = c("alpha","lsigma_point[1]","lsigma_small","lsigma_offset","sigma_cluster","cluster_mean[1]","cluster_lmean[1]","carbon_cluster[1]","beta"))
+#pairs(mod7_forest, pars = c("alpha","lsigma_point[103]","lsigma_small","meanfraction","lsigma_offset","sigma_cluster[103]","cluster_mean[103]","cluster_lmean[103]","carbon_cluster[103]","beta"))
+
+clusmod_forest <- rstan::stan(file = "STAN\\carbdiv_clus_forest_intercept.stan", data = forestdata, init = function(){list(alpha = rnorm(1, 200, 20))}, 
+                              chains = 4, cores = 4, iter = 5000, thin = 1, control = list(adapt_delta = 0.99, max_treedepth = 15))
+clusmod_paramo <- rstan::stan(file = "STAN\\carbdiv_clus_paramo.stan", data = paramodata, init = function(){list(alpha = rnorm(1, 30, 5))}, 
+                              chains = 4, cores = 4, iter = 2000, thin = 1, control = list(adapt_delta = 0.99, max_treedepth = 15))
 
 ## LOO comparison
-models <- list(mod1_forest, mod2_forest, mod3_forest, mod4_forest, mod5_forest, mod6_forest, mod7_forest)
+models <- list(mod1_forest, mod2_forest, mod4_forest)#, mod3_forest, mod5_forest, mod6_forest, mod7_forest)
 loo::loo_compare(lapply(models, loo::loo))
 
 ## Plot differences in cluster carbon estimates
-plot(colMeans(rstan::extract(mod2_forest,"carbon_cluster")[[1]]), 
-     colMeans(rstan::extract(mod4_forest,"carbon_cluster")[[1]]),
+plot(colMeans(rstan::extract(mod4_forest,"carbon_cluster")[[1]]), 
+     colMeans(rstan::extract(mod5_forest,"carbon_cluster")[[1]]),
      xlab = "fixed variance", ylab = "heteroscedastic model", main = "model estimate difference")
 abline(0,1)
 
@@ -97,8 +102,16 @@ plot(colMeans(postvalues$carbon_cluster) ~ forestdata$predictor[,1],
         points(mean(postvalues$alpha) + mean(postvalues$beta) * forestdata$predictor[,1] ~ forestdata$predictor[,1], col = "red")
 
 ## Histogram
-postvalues <- rstan::extract(mod4_forest)
+postvalues <- rstan::extract(mod5_forest)
 hist(postvalues$meanfraction, main = "fraction of the mean parameter")
+
+## ppc_dens
+test <- rstan::extract(mod4_forest, pars = "cluster_lmean")[[1]]
+test2 <- rstan::extract(mod4_forest, pars = "lsigma_point")[[1]]
+test3 <- sapply(1:nrow(test), function(x) rnorm(ncol(test), test[x,], test2[x,]))
+bayesplot::ppc_dens_overlay(forestdata$lcarbon_point, t(test3))
+bayesplot::ppc_dens_overlay(forestdata$lcarbon_point, rstan::extract(mod2_forest, pars = "cluster_lmean")[[1]])
+
 
 ##### MODELS
 # Only random cluster effect
