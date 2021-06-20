@@ -106,9 +106,9 @@ write("data{
             
             model{
               // priors
-              alpha_hab ~ normal(0,30);
-              sigma_hab ~ normal(0, 10);
-              sigma_cluster_hab ~ normal(0, 20);
+              alpha_hab ~ normal(0,2);
+              sigma_hab ~ normal(0,1);
+              sigma_cluster_hab ~ normal(0,1);
               sigma_cluster_hab_raw ~ std_normal();
               
               // likelihood
@@ -135,16 +135,16 @@ write("data{
             }
             
             parameters{
-              real alpha;                         
-              real<lower=0> lsigma_point;
-              real<lower=0> sigma_cluster;
-              vector[n_cluster] sigma_cluster_raw;
+              real alpha;                          // intercept
+              real<lower=0> lsigma_point;          // standard deviation of plots
+              real<lower=0> sigma_cluster;         // standard deviation of clusters
+              vector<lower=-alpha/sigma_cluster>[n_cluster] sigma_cluster_raw; // centering parameter of cluster effect
             }
             
             transformed parameters{
-              real cluster_mean = alpha;
-              vector[n_cluster] carbon_cluster = cluster_mean + sigma_cluster * sigma_cluster_raw;
-              vector[n_cluster] cluster_lmean = log(carbon_cluster) - (lsigma_point ^ 2)/2; // mean of the logarithm of point-level carbon stocks at the cluster scale
+              real landscape_mean = alpha;                                                           // landscape average carbon
+              vector[n_cluster] carbon_cluster = landscape_mean + sigma_cluster * sigma_cluster_raw; // estimated cluster carbon stock
+              vector[n_cluster] cluster_lmean = log(carbon_cluster) - (lsigma_point ^ 2)/2;          // mean of the logarithm of point-level carbon stocks at the cluster scale
             }
             
             model{
@@ -179,14 +179,14 @@ write("data{
               vector[n_pred] beta;
               real<lower=0> lsigma_point;
               real<lower=0> meanfraction;
-              vector[n_cluster] sigma_cluster_raw;
+              vector<lower=-1/meanfraction>[n_cluster] sigma_cluster_raw;
             }
             
             transformed parameters{
-              vector[n_cluster] cluster_mean = alpha + predictor * beta;
-              vector[n_cluster] sigma_cluster = cluster_mean * meanfraction;
-              vector[n_cluster] carbon_cluster = cluster_mean + sigma_cluster .* sigma_cluster_raw;
-              vector[n_cluster] cluster_lmean = log(carbon_cluster) - (lsigma_point ^ 2)/2; // mean of the logarithm of point-level carbon stocks at the cluster scale
+              vector[n_cluster] landscape_mean = alpha + predictor * beta;
+              vector[n_cluster] sigma_cluster = landscape_mean * meanfraction;
+              vector[n_cluster] carbon_cluster = landscape_mean + sigma_cluster .* sigma_cluster_raw;
+              vector[n_cluster] cluster_lmean = log(carbon_cluster) - (lsigma_point ^ 2)/2;
             }
             
             model{
@@ -194,8 +194,10 @@ write("data{
               alpha ~ normal(0,200);
               beta ~ normal(0,100);
               sigma_cluster_raw ~ std_normal();
+              //sigma_cluster_raw ~ normal(0,1);
               lsigma_point ~ normal(0,10);
               meanfraction ~ uniform(0,1);
+              //meanfraction ~ normal(0.5,0.12);
               // likelihood
               lcarbon_point ~ normal(cluster_lmean[cluster], lsigma_point);
             }
@@ -209,83 +211,83 @@ write("data{
 
 ## Paramo cluster biomass model - no covariates
 write("data{
-              int<lower=1> n_point;                // number of points
-              int<lower=1> n_cluster;              // number of clusters
-              vector[n_point] lcarbon_point;       // log-carbon at each point
-              int<lower=1> cluster[n_point];       // cluster at each point
+            int<lower=1> n_point;                // number of points
+            int<lower=1> n_cluster;              // number of clusters
+            vector[n_point] lcarbon_point;       // log-carbon at each point
+            int<lower=1> cluster[n_point];       // cluster at each point
+          }
+          
+          parameters{
+            real<lower=0> alpha;                   // intercept
+            real<lower=0> lsigma_cluster;          // between-cluster sd
+            real<lower=0> lsigma_point;            // between-point sd
+            vector[n_cluster] lsigma_cluster_raw;
+          }
+          
+          transformed parameters{
+            real<lower=0> landscape_mean = alpha;                                                     // mean landscape carbon
+            vector[n_cluster] lcarbon_cluster = landscape_mean + lsigma_cluster * lsigma_cluster_raw; // carbon stocks at cluster level
+          }
+          
+          model{
+            // priors
+            alpha ~ normal(0, 50);
+            lsigma_cluster ~ normal(0,50);
+            lsigma_cluster_raw ~ std_normal();
+            lsigma_point ~ normal(0,5);
+            // likelihood
+            lcarbon_point ~ normal(lcarbon_cluster[cluster], lsigma_point);
+          }
+          
+          generated quantities{
+            vector[n_cluster] carbon_cluster = exp(lcarbon_cluster + (lsigma_point ^ 2) / 2);
+            real log_lik[n_point];
+            for(i in 1:n_point){
+              log_lik[i] = normal_lpdf(lcarbon_point[i] | lcarbon_cluster[cluster[i]], lsigma_point);
             }
-            
-            parameters{
-              real alpha;                          // intercept
-              real<lower=0> sigma_cluster;         // between-cluster sd by habitat (should this grow with the mean?)
-              real<lower=0> lsigma_point;          // between-point sd by habitat for large plots
-              vector[n_cluster] sigma_cluster_raw;
-            }
-            
-            transformed parameters{
-              real<lower=0> cluster_mean = alpha;                                                            // mean landscape carbon
-              vector[n_cluster] carbon_cluster = cluster_mean + sigma_cluster * sigma_cluster_raw;  // carbon stocks at cluster level
-              vector[n_cluster] cluster_lmean = log(carbon_cluster) - (lsigma_point ^ 2)/2;         // mean of the logarithm of point-level carbon stocks at the cluster scale
-            }
-            
-            model{
-              // priors
-              alpha ~ normal(0, 50);
-              sigma_cluster ~ normal(0,50);
-              sigma_cluster_raw ~ std_normal();
-              lsigma_point ~ normal(0,5);
-              // likelihood
-              lcarbon_point ~ normal(cluster_lmean[cluster], lsigma_point);
-            }
-            
-            generated quantities{
-              real log_lik[n_point];
-              for(i in 1:n_point){
-                log_lik[i] = normal_lpdf(lcarbon_point[i] | cluster_lmean[cluster[i]], lsigma_point);
-              }
-            }", file = "STAN\\carbdiv_clus_paramo_intercept.stan")
+          }", file = "STAN\\carbdiv_clus_paramo_intercept.stan")
 
 ## Paramo cluster biomass model - covariates
 write("data{
-              int<lower=1> n_point;                // number of points
-              int<lower=1> n_cluster;              // number of clusters
-              int<lower=1> n_pred;                 // number of predictors
-              vector[n_point] lcarbon_point;       // log-carbon at each point
-              int<lower=1> cluster[n_point];       // cluster at each point
-              matrix[n_cluster, n_pred] predictor; // predictors at each cluster
+            int<lower=1> n_point;                // number of points
+            int<lower=1> n_cluster;              // number of clusters
+            int<lower=1> n_pred;                 // number of predictors
+            vector[n_point] lcarbon_point;       // log-carbon at each point
+            int<lower=1> cluster[n_point];       // cluster at each point
+            matrix[n_cluster, n_pred] predictor; // predictors at each cluster
+          }
+          
+          parameters{
+            real<lower=0> alpha;                   // intercept
+            vector[n_pred] beta;                 // coefficient for predictors
+            real<lower=0> lsigma_cluster;          // between-cluster sd
+            real<lower=0> lsigma_point;            // between-point sd
+            vector[n_cluster] lsigma_cluster_raw;
+          }
+          
+          transformed parameters{
+            vector[n_cluster] landscape_mean = alpha + predictor * beta;                              // mean landscape carbon
+            vector[n_cluster] lcarbon_cluster = landscape_mean + lsigma_cluster * lsigma_cluster_raw; // carbon stocks at cluster level
+          }
+          
+          model{
+            // priors
+            alpha ~ normal(0, 50);
+            beta ~ normal(0, 50);
+            lsigma_cluster ~ normal(0,50);
+            lsigma_cluster_raw ~ std_normal();
+            lsigma_point ~ normal(0,5);
+            // likelihood
+            lcarbon_point ~ normal(lcarbon_cluster[cluster], lsigma_point);
+          }
+          
+          generated quantities{
+            vector[n_cluster] carbon_cluster = exp(lcarbon_cluster + (lsigma_point ^ 2) / 2);
+            real log_lik[n_point];
+            for(i in 1:n_point){
+              log_lik[i] = normal_lpdf(lcarbon_point[i] | lcarbon_cluster[cluster[i]], lsigma_point);
             }
-            
-            parameters{
-              real alpha;                          // intercept
-              vector[n_pred] beta;                 // coefficient for predictors
-              real<lower=0> sigma_cluster;         // between-cluster sd by habitat (should this grow with the mean?)
-              real<lower=0> lsigma_point;          // between-point sd by habitat for large plots
-              vector[n_cluster] sigma_cluster_raw;
-            }
-            
-            transformed parameters{
-              vector[n_cluster] cluster_mean = alpha + predictor * beta;                            // mean landscape carbon
-              vector[n_cluster] carbon_cluster = cluster_mean + sigma_cluster * sigma_cluster_raw;  // carbon stocks at cluster level
-              vector[n_cluster] cluster_lmean = log(carbon_cluster) - (lsigma_point ^ 2)/2;         // mean of the logarithm of point-level carbon stocks at the cluster scale
-            }
-            
-            model{
-              // priors
-              alpha ~ normal(0, 50);
-              beta ~ normal(0, 50);
-              sigma_cluster ~ normal(0,50);
-              sigma_cluster_raw ~ std_normal();
-              lsigma_point ~ normal(0,5);
-              // likelihood
-              lcarbon_point ~ normal(cluster_lmean[cluster], lsigma_point);
-            }
-            
-            generated quantities{
-              real log_lik[n_point];
-              for(i in 1:n_point){
-                log_lik[i] = normal_lpdf(lcarbon_point[i] | cluster_lmean[cluster[i]], lsigma_point);
-              }
-            }", file = "STAN\\carbdiv_clus_paramo.stan")
+          }", file = "STAN\\carbdiv_clus_paramo_covariates.stan")
 
 #########################
 #### Diversity models ###

@@ -287,7 +287,7 @@ moddat <- list("n_site" = length(Grassdata$GrassAGB),                           
                "n_grass" = length(which(!is.na(Grassdata$GrassAGB))),                  # Number of grass samples
                "n_habitat" = length(unique(Grassdata$HabitatP)),                       # Number of habitats
                "n_cluster" = length(unique(plotdata$ClusNum)),                         # Number of clusters
-               "grass" = Grassdata$GrassAGB[which(!is.na(Grassdata$GrassAGB))],        # Grass biomass data
+               "grass" = log(Grassdata$GrassAGB[which(!is.na(Grassdata$GrassAGB))]),   # Grass biomass data (log scale)
                "habitat" = as.numeric(as.factor(Grassdata %>% group_by(SiteNum) %>% summarise(hab = first(HabitatP)) %>% pull(hab))),     # Habitat at each site
                "hab_cluster" = as.numeric(as.factor(Grassdata %>% group_by(ClusNum) %>% summarise(hab = first(HabitatP)) %>% pull(hab))), # Habitat at each cluster
                "cluster" = Grassdata %>% group_by(SiteNum) %>% summarise(clus = first(ClusNum)) %>% pull(clus),                           # Cluster at each site
@@ -300,7 +300,7 @@ pairs(grassmod, pars = c("alpha_hab","alpha_clus[1]","sigma_hab","sigma_cluster_
 grassmu <- rstan::extract(grassmod, "mu")[[1]]
 grassigma <- rstan::extract(grassmod, "sigma")[[1]]
 grassmoddraws <- sapply(1:nrow(grassmu), function(x) rnorm(ncol(grassmu), grassmu[x,], grassigma[x,]))
-grassdraws <- grassmoddraws
+grassdraws <- exp(grassmoddraws)
 grassdraws[which(!is.na(Grassdata$GrassAGB)),] <- t(matrix(data = rep(Grassdata$GrassAGB[which(!is.na(Grassdata$GrassAGB))], ncol(grassmoddraws)), ncol = length(Grassdata$GrassAGB[which(!is.na(Grassdata$GrassAGB))]), nrow = ncol(grassmoddraws), byrow = TRUE))
 grassdraws <- data.frame(SiteNum = Grassdata$SiteNum, grassdraws)
 
@@ -404,8 +404,8 @@ forestpredictors <- list(# Single model
                          "elev+precvar" =  cbind(scale(AGBlist_forest$plotdata %>% group_by(ClusNum) %>% summarise(elev = mean(ALOSelev)) %>% pull(elev))[,1],
                                                  scale(AGBlist_forest$plotdata %>% group_by(ClusNum) %>% summarise(precvar = mean(PrecVar)) %>% pull(precvar))[,1]))
 
-AGBdraws_short <- AGBlist_forest$AGBdraws[order(AGBlist_forest$AGBdraws$SiteNum), seq(2,dim(AGBlist_forest$AGBdraws[,-1])[2], 20)]
-AGBdraws_short <- AGBdraws_short[,1:5]
+AGBdraws_short <- AGBlist_forest$AGBdraws[order(AGBlist_forest$AGBdraws$SiteNum), seq(2,dim(AGBlist_forest$AGBdraws[,-1])[2], 100)]
+AGBdraws_short <- AGBdraws_short[,1:2]
 warnings_forest <- list()
 postest_forest <- list()
 totaldraws <- 10000
@@ -413,6 +413,8 @@ totaldraws <- 10000
 # Run intercept models
 modcode <- rstan::stan_model("STAN\\carbdiv_clus_forest_intercept.stan")
 warnings <- list(low_bfmi = NULL, rhat = NULL, ess = NULL, divergences = NULL, treedepth = NULL)
+loo_forest <- list("elpd" = list(), "ploo" = list(), "elpd_se" = list(), "ploo_se" = list(), "pareto_k" <- list())
+loo_forest$elpd[[1]] <- vector() ; loo_forest$ploo[[1]] <- vector() ; loo_forest$elpd_se[[1]] <- vector() ; loo_forest$ploo_se[[1]] <- vector() ; loo_forest$pareto_k[[1]] <- vector()
   for(i in 1:dim(AGBdraws_short)[2]){
     print(paste("Model ",i," of ", dim(AGBdraws_short)[2], sep = ""))
     # Run model
@@ -420,7 +422,7 @@ warnings <- list(low_bfmi = NULL, rhat = NULL, ess = NULL, divergences = NULL, t
                        n_cluster = length(unique(AGBlist_forest$plotdata$ClusNum)),                                               # Number of clusters
                        lcarbon_point = log(AGBdraws_short[,i]),                                                                   # Carbon at each point
                        cluster = as.numeric(as.factor(AGBlist_forest$plotdata[order(AGBlist_forest$plotdata$SiteNum),]$ClusNum))) # Cluster at each point
-    clusmod_forest <- rstan::sampling(object = modcode, data = forestdata, init = function(){list(alpha = rnorm(1, 200, 20))}, 
+    clusmod_forest <- rstan::sampling(object = modcode, data = forestdata, init = function(){list(alpha = rnorm(1, 200, 20), sigma_cluster = rnorm(1,60,10),  sigma_cluster_raw = rnorm(forestdata$n_cluster,0,0.3))}, 
                                       chains = 4, cores = 4, iter = 5000, thin = 1, control = list(adapt_delta = 0.99))
     
     # Extract and combine posterior estimates
@@ -430,7 +432,15 @@ warnings <- list(low_bfmi = NULL, rhat = NULL, ess = NULL, divergences = NULL, t
     ifelse(i == 1, postcomb <- postest,
                    postcomb <- lapply(seq_along(postest), function(x) if(length(dim(postest[[x]])) > 1){rbind(postcomb[[x]], postest[[x]])}
                                                                       else{append(postcomb[[x]], postest[[x]])}))
-
+    
+    # LOO estimates
+    looest <- loo::loo(clusmod_forest)#, moment_match = T, k_threshold = 0.5)
+    loo_forest$elpd[[1]][i] <- looest$estimates[1,1]
+    loo_forest$ploo[[1]][i] <- looest$estimates[1,2]
+    loo_forest$elpd_se[[1]][i] <- looest$estimates[2,1]
+    loo_forest$ploo_se[[1]][i] <- looest$estimates[2,2]
+    loo_forest$pareto_k[[1]][i] <- max(looest$diagnostics$pareto_k)
+    
     # Save warnings
     warnings$low_bfmi <- append(warnings$low_bfmi, length(rstan::get_low_bfmi_chains(clusmod_forest)))
     warnings$rhat <- append(warnings$rhat,  length(which(rstan::summary(clusmod_forest)[[1]][,10] > 1.01)))
@@ -444,13 +454,14 @@ postest_forest[[1]] <- postcomb
 names(postest_forest)[[1]] <- "intercept"
 names(warnings_forest)[[1]] <- "intercept"
 
-pairs(clusmod_forest, pars = c("alpha","cluster_mean","carbon_cluster[1]","cluster_lmean[1]","lsigma_point","sigma_cluster"))
+pairs(clusmod_forest, pars = c("alpha","landscape_mean","carbon_cluster[1]","cluster_lmean[1]","lsigma_point","sigma_cluster","sigma_cluster_raw[1]"))
 
 # Run covariate models
-modcode <- rstan::stan_model("STAN\\carbdiv_clus_forest.stan")
+modcode <- rstan::stan_model("STAN\\carbdiv_clus_forest_covariates.stan")
 modnum <- 0
 for(j in 1:(length(forestpredictors))){
   warnings <- list(low_bfmi = NULL, rhat = NULL, ess = NULL, divergences = NULL, treedepth = NULL)
+  elpd <- vector() ; ploo <- vector(); elpd_se <- vector() ; ploo_se <- vector() ; pareto_k <- vector()
   for(i in 1:dim(AGBdraws_short)[2]){
     modnum <- modnum + 1
     print(paste("Model ", modnum," of ", length(forestpredictors) * dim(AGBdraws_short)[2], sep = ""))
@@ -461,7 +472,10 @@ for(j in 1:(length(forestpredictors))){
                        lcarbon_point = log(AGBdraws_short[,i]),                                                                   # Carbon at each point
                        cluster = as.numeric(as.factor(AGBlist_forest$plotdata[order(AGBlist_forest$plotdata$SiteNum),]$ClusNum)), # Cluster at each point
                        predictor = forestpredictors[[j]])                                                                         # Predictor at each
-    clusmod_forest <- rstan::sampling(object = modcode, data = forestdata, init = function(){list(alpha = rnorm(1, 200, 20), meanfraction = rnorm(1,0.5,0.001))}, 
+    clusmod_forest <- rstan::sampling(object = modcode, data = forestdata, 
+                                      init = function(){list(alpha = rnorm(1, 200, 20), meanfraction = rnorm(1,0.5,0.001), sigma_cluster_raw = rnorm(forestdata$n_cluster,0,0.3))}, 
+                                      chains = 4, cores = 4, iter = 5000, thin = 1, control = list(adapt_delta = 0.99))
+    clusmod_forest <- rstan::sampling(object = modcode, data = forestdata, 
                                       chains = 4, cores = 4, iter = 5000, thin = 1, control = list(adapt_delta = 0.99))
     
     # Extract and combine posterior estimates
@@ -472,6 +486,14 @@ for(j in 1:(length(forestpredictors))){
                    postcomb <- lapply(seq_along(postest), function(x) if(length(dim(postest[[x]])) > 1){rbind(postcomb[[x]], postest[[x]])}
                                                                       else{append(postcomb[[x]], postest[[x]])}))
     
+    # LOO estimates
+    looest <- loo::loo(clusmod_forest, moment_match = T, k_threshold = 0.5)
+    elpd[i] <- looest$estimates[1,1]
+    ploo[i] <- looest$estimates[1,2]
+    elpd_se[i] <- looest$estimates[2,1]
+    ploo_se[i] <- looest$estimates[2,2]
+    pareto_k[i] <- max(looest$diagnostics$pareto_k)
+    
     # Save warnings
     warnings$low_bfmi <- append(warnings$low_bfmi, length(rstan::get_low_bfmi_chains(clusmod_forest)))
     warnings$rhat <- append(warnings$rhat,  length(which(rstan::summary(clusmod_forest)[[1]][,10] > 1.01)))
@@ -479,6 +501,11 @@ for(j in 1:(length(forestpredictors))){
     warnings$divergences <- append(warnings$divergence, rstan::get_num_divergent(clusmod_forest))
     warnings$treedepth <- append(warnings$treedepth, rstan::get_num_max_treedepth(clusmod_forest))
   }
+  loo_forest$elpd[[j]] <- elpd
+  loo_forest$ploo[[j]] <- ploo
+  loo_forest$elpd_se[[j]] <- elpd_se
+  loo_forest$ploo_se[[j]] <- ploo_se
+  loo_forest$pareto_k[[j]] <- pareto_k
   names(postcomb) <- names(postest)
   warnings_forest[[j+1]] <- warnings
   postest_forest[[j+1]] <- postcomb
@@ -486,7 +513,7 @@ for(j in 1:(length(forestpredictors))){
 names(postest_forest)[-1] <- names(forestpredictors)
 names(warnings_forest)[-1] <- names(forestpredictors)
 
-pairs(clusmod_forest, pars = c("alpha","cluster_mean[1]","carbon_cluster[1]","cluster_lmean[1]","lsigma_point","meanfraction","sigma_cluster[1]","beta"))
+pairs(clusmod_forest, pars = c("alpha","landscape_mean[1]","carbon_cluster[1]","cluster_lmean[1]","lsigma_point","meanfraction","sigma_cluster[1]","beta","sigma_cluster_raw[1]"))
 
 # Save output
 saveRDS(postest_forest, "Output\\CarbDiv\\postest_clusmod_forest.R")
@@ -509,9 +536,8 @@ paramopredictors <- list(# Single model
   "elev+precvar" =  cbind(scale(AGBlist_paramo$plotdata %>% group_by(ClusNum) %>% summarise(elev = mean(ALOSelev)) %>% pull(elev))[,1],
                           scale(AGBlist_paramo$plotdata %>% group_by(ClusNum) %>% summarise(precvar = mean(PrecVar)) %>% pull(precvar))[,1]))
 
-AGBdraws_short <- AGBlist_paramo$AGBdraws[order(AGBlist_paramo$AGBdraws$SiteNum), seq(2,dim(AGBlist_paramo$AGBdraws[,-1])[2], 20)]
-AGBdraws_short <- AGBdraws_short[,1:2]
-AGBdraws_short[AGBdraws_short < 1] <- 0.01  ## TEMPORARY FIX
+AGBdraws_short <- AGBlist_paramo$AGBdraws[order(AGBlist_paramo$AGBdraws$SiteNum), seq(2,dim(AGBlist_paramo$AGBdraws[,-1])[2], 100)]
+AGBdraws_short <- AGBdraws_short[,1:10]
 warnings_paramo <- list()
 postest_paramo <- list()
 totaldraws <- 10000
@@ -528,7 +554,7 @@ for(i in 1:dim(AGBdraws_short)[2]){
                      cluster = as.numeric(as.factor(AGBlist_paramo$plotdata[order(AGBlist_paramo$plotdata$SiteNum),]$ClusNum))) # Cluster at each point
   clusmod_paramo <- rstan::sampling(object = modcode, data = paramodata, init = function(){list(alpha = rnorm(1, 30, 5))}, 
                                     chains = 4, cores = 4, iter = 5000, thin = 1, control = list(adapt_delta = 0.99, max_treedepth = 15))
-  
+
   # Extract and combine posterior estimates
   postest <- rstan::extract(clusmod_paramo)
   postest <- lapply(postest, function(x) if(length(dim(x)) > 1){x[seq(1, dim(postest[[1]]), (dim(postest[[1]]) * dim(AGBdraws_short)[2]) / totaldraws),]}
@@ -550,7 +576,7 @@ postest_paramo[[1]] <- postcomb
 names(postest_paramo)[[1]] <- "intercept"
 names(warnings_paramo[[1]]) <- "intercept"
 
-pairs(clusmod_paramo, pars = c("alpha","cluster_mean","carbon_cluster[1]","cluster_lmean[1]","lsigma_point","sigma_cluster","sigma_cluster_raw[1]"))
+#pairs(clusmod_paramo, pars = c("alpha","cluster_mean","carbon_cluster[1]","cluster_lmean[1]","lsigma_point","sigma_cluster","sigma_cluster_raw[1]"))
 
 # Run covariate models
 modcode <- rstan::stan_model("STAN\\carbdiv_clus_paramo.stan")
@@ -559,7 +585,7 @@ for(j in 1:(length(paramopredictors))){
   warnings <- list(low_bfmi = NULL, rhat = NULL, ess = NULL, divergences = NULL, treedepth = NULL)
   for(i in 1:dim(AGBdraws_short)[2]){
     modnum <- modnum + 1
-    print(paste("Model ", modnum," of ", length(forestpredictors) * dim(AGBdraws_short)[2], sep = ""))
+    print(paste("Model ", modnum," of ", length(paramopredictors) * dim(AGBdraws_short)[2], sep = ""))
     # Run model
     paramodata <- list(n_point = dim(AGBdraws_short)[1],                                                                          # Number of points
                        n_cluster = length(unique(AGBlist_paramo$plotdata$ClusNum)),                                               # Number of clusters
@@ -592,7 +618,7 @@ for(j in 1:(length(paramopredictors))){
 names(postest_paramo)[-1] <- names(paramopredictors)
 names(warnings_paramo)[-1] <- names(paramopredictors)
 
-pairs(clusmod_paramo, pars = c("alpha","cluster_mean[1]","carbon_cluster[1]","cluster_lmean[1]","lsigma_point","sigma_cluster","sigma_cluster_raw[1]","beta"))
+#pairs(clusmod_paramo, pars = c("alpha","cluster_mean[1]","carbon_cluster[1]","cluster_lmean[1]","lsigma_point","sigma_cluster","sigma_cluster_raw[1]","beta"))
 
 # Save output
 saveRDS(postest_paramo, "Output\\CarbDiv\\postest_clusmod_paramo.R")
@@ -654,7 +680,7 @@ write.csv(do.call(rbind, posttab_forest), "Output\\CarbDiv\\postest_clusmod_fore
 # Parameter estimate table - forest
 posttab_paramo <- list()
 for(i in 1:length(postest_paramo)){
-  AGBmu <- postest_paramo[[i]]$cluster_lmean
+  AGBmu <- postest_paramo[[i]]$lcarbon_cluster
   AGBsigma <- postest_paramo[[i]]$lsigma_point
   AGBpoint <-  sapply(1:nrow(AGBmu), function(x) rnorm(ncol(AGBmu), AGBmu[x,], AGBsigma[x]))
   R2 <- bayes_R2_res(y = t(AGBpoint), ypred = AGBmu)
